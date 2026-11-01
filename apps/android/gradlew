@@ -1,0 +1,21 @@
+#!/bin/sh
+# OmSuite bootstrap wrapper (Stream 2 note): the stock gradle-wrapper.jar is
+# not vendored here because this VM cannot run Java to generate it. This
+# script performs the same job — download Gradle 8.7 once, then exec it —
+# so CI (which has network) can build with ./gradlew. A clean clone with
+# network needs no other tooling. Set GRADLE_DIST_URL to override.
+set -e
+APP_HOME="$(cd "$(dirname "$0")" && pwd)"
+DIST_URL="${GRADLE_DIST_URL:-https://services.gradle.org/distributions/gradle-8.7-bin.zip}"
+CACHE_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/omsuite-gradle-8.7"
+if [ ! -x "$CACHE_DIR/gradle-8.7/bin/gradle" ]; then
+  mkdir -p "$CACHE_DIR"
+  TMP_ZIP="$CACHE_DIR/gradle-8.7-bin.zip"
+  if [ ! -f "$TMP_ZIP" ]; then
+    echo "Downloading Gradle 8.7 from $DIST_URL ..."
+    curl -L -o "$TMP_ZIP" "$DIST_URL" || wget -O "$TMP_ZIP" "$DIST_URL"
+  fi
+  echo "Unpacking Gradle 8.7 ..."
+  if command -v unzip >/dev/null 2>&1; then unzip -q -o "$TMP_ZIP" -d "$CACHE_DIR"; else python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$TMP_ZIP" "$CACHE_DIR"; fi
+fi
+exec "$CACHE_DIR/gradle-8.7/bin/gradle" "$@"

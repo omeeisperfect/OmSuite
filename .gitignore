@@ -1,0 +1,39 @@
+# OmSuite — repository hygiene. Never commit secrets, signing material,
+# personal data, or generated build output. See docs/SECURITY.md.
+# Project licence: NOT YET SELECTED — no LICENSE file is committed.
+
+# Signing material (never commit, even by accident)
+/*.keystore
+*.jks
+*.p12
+*.pfx
+keystore.properties
+signing.properties
+
+# Android / Gradle
+local.properties
+apps/android/.gradle/
+apps/android/build/
+apps/android/app/build/
+apps/android/*.apk
+apps/android/*.aab
+.gradle/
+
+# Windows / Electron
+apps/windows/node_modules/
+apps/windows/dist/
+apps/windows/*.log
+
+# Python reference engines (stream 4) — caches only
+__pycache__/
+*.pyc
+
+# Editors, OS, temp files
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*~

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmSuite</title>
+<link rel="stylesheet" href="styles.css">
+<script src="markdown.js"></script>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <h1 id="brand">OmSuite</h1>
+    <p id="tagline">Everything. One Workspace.</p>
+    <nav id="nav">
+      <button class="nav-btn active" data-view="home">🏠 Home</button>
+      <button class="nav-btn" data-view="files">📁 Files</button>
+      <button class="nav-btn" data-view="editor">📝 Editor</button>
+      <button class="nav-btn" data-view="settings">⚙️ Settings</button>
+    </nav>
+    <div id="side-favs">
+      <h2>Favourites</h2>
+      <div id="fav-list"><p class="muted">No favourites yet. Right-click a folder → Add to favourites.</p></div>
+    </div>
+    <p id="privacy-note">Local only. No account, no cloud, no telemetry.</p>
+  </aside>
+  <div id="sidebar-resizer" title="Drag to resize sidebar"></div>
+
+  <main id="main">
+    <!-- HOME -->
+    <section id="view-home" class="view active">
+      <h2>Home</h2>
+      <div class="cards">
+        <button class="card" id="home-new-text"><strong>＋ New text file</strong><span>Create a local text file in the Editor.</span></button>
+        <button class="card" id="home-open-folder"><strong>📁 Open folder</strong><span>Browse your local files.</span></button>
+        <button class="card" id="home-open-file"><strong>📝 Open text file</strong><span>Open TXT, MD, JSON, XML, YAML or HTML.</span></button>
+      </div>
+      <h3>Recent</h3>
+      <div id="recent-list"><p class="muted">Nothing opened yet.</p></div>
+    </section>
+
+    <!-- FILES -->
+    <section id="view-files" class="view">
+      <div class="toolbar">
+        <button id="btn-back" title="Back">←</button>
+        <button id="btn-forward" title="Forward">→</button>
+        <button id="btn-up" title="Up one folder">↑ Up</button>
+        <input id="path-input" type="text" placeholder="Folder path — press Enter to go" spellcheck="false">
+        <button id="btn-go" title="Go to path">Go</button>
+      </div>
+      <nav id="breadcrumbs" aria-label="Breadcrumbs"></nav>
+      <div class="toolbar">
+        <button id="btn-new-folder">＋ New folder</button>
+        <button id="btn-new-text-file">＋ New text file</button>
+        <button id="btn-copy-here">📥 Copy files here…</button>
+        <button id="btn-copy-sel">Copy</button>
+        <button id="btn-cut-sel">Cut</button>
+        <button id="btn-paste">Paste</button>
+        <button id="btn-delete-sel">🗑 Delete selected</button>
+        <input id="search-input" type="search" placeholder="Filter this folder… (Ctrl+F)">
+        <select id="sort-select" title="Sort">
+          <option value="name-asc">Name ↑</option>
+          <option value="name-desc">Name ↓</option>
+          <option value="size-asc">Size ↑</option>
+          <option value="size-desc">Size ↓</option>
+          <option value="date-desc">Newest first</option>
+          <option value="date-asc">Oldest first</option>
+          <option value="type-asc">Type ↑</option>
+        </select>
+        <select id="view-select" title="View">
+          <option value="list">List</option>
+          <option value="grid">Grid</option>
+          <option value="details">Details</option>
+        </select>
+      </div>
+      <div id="file-area" tabindex="0">
+        <div id="file-list"></div>
+      </div>
+      <div id="file-status" class="statusbar"></div>
+      <p class="hint">Tip: Ctrl+click / Shift+click to multi-select. Right-click for more actions. Drag files from your PC into this folder to copy them here. Drag a row onto a folder row to move it.</p>
+    </section>
+
+    <!-- EDITOR -->
+    <section id="view-editor" class="view">
+      <div class="toolbar">
+        <button id="ed-new">New</button>
+        <button id="ed-open">Open…</button>
+        <button id="ed-save">💾 Save</button>
+        <button id="ed-save-as">Save as…</button>
+        <button id="ed-undo">↩ Undo</button>
+        <button id="ed-redo">↪ Redo</button>
+        <button id="ed-find-toggle">🔍 Find</button>
+        <button id="ed-validate">✓ Validate JSON</button>
+        <button id="ed-format-json">Format JSON</button>
+        <button id="ed-preview-toggle">👁 Preview</button>
+      </div>
+      <div id="ed-pathbar"><span id="ed-path">Untitled — not saved yet</span><span id="ed-dirty"></span></div>
+      <div id="ed-findbar" class="toolbar hidden">
+        <input id="find-input" type="text" placeholder="Find…">
+        <label><input id="find-case" type="checkbox"> Match case</label>
+        <button id="find-prev">↑ Prev</button>
+        <button id="find-next">↓ Next</button>
+        <span id="find-count"></span>
+        <input id="replace-input" type="text" placeholder="Replace with…">
+        <button id="replace-one">Replace</button>
+        <button id="replace-all">Replace all</button>
+      </div>
+      <div id="ed-body">
+        <textarea id="ed-text" spellcheck="false" placeholder="Start typing, or open a text file…"></textarea>
+        <div id="ed-preview" class="hidden"></div>
+      </div>
+      <div id="ed-status" class="statusbar"></div>
+      <p id="ed-json-status" class="hint"></p>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="view">
+      <h2>Settings</h2>
+      <fieldset>
+        <legend>Theme</legend>
+        <label><input type="radio" name="theme" value="system"> System (follow Windows)</label>
+        <label><input type="radio" name="theme" value="light"> Light</label>
+        <label><input type="radio" name="theme" value="dark"> Dark</label>
+      </fieldset>
+      <fieldset>
+        <legend>Default save location</legend>
+        <p class="muted">New text files and Save As start here when set. Leave empty to use the folder picker each time.</p>
+        <div class="row">
+          <input id="set-save-location" type="text" placeholder="e.g. C:\Users\you\Documents\OmSuite" spellcheck="false">
+          <button id="set-browse-location">Browse…</button>
+          <button id="set-clear-location">Clear</button>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>History</legend>
+        <label><input id="set-recents-enabled" type="checkbox"> Keep a list of recently opened files and folders</label>
+        <div class="row"><button id="set-clear-recents">Clear recent history</button></div>
+      </fieldset>
+      <fieldset>
+        <legend>Cache</legend>
+        <p class="muted">OmSuite keeps only a small local preview cache. Nothing is uploaded anywhere.</p>
+        <div class="row"><button id="set-clear-cache">Clear cache</button><span id="cache-result"></span></div>
+      </fieldset>
+      <fieldset>
+        <legend>Privacy</legend>
+        <p>OmSuite is local-first: no account, no login, no cloud storage, no sync,
+        no subscription, and no telemetry. Your files never leave this PC through
+        OmSuite. The app makes no network requests while running. Recents and
+        favourites are stored as file paths only, in the app data folder shown
+        below — never file contents.</p>
+        <p class="muted" id="about-lines"></p>
+      </fieldset>
+    </section>
+  </main>
+</div>
+
+<div id="modal-overlay" class="hidden">
+  <div id="modal">
+    <h3 id="modal-title">Action</h3>
+    <div id="modal-body"></div>
+    <div id="modal-actions">
+      <button id="modal-ok">OK</button>
+      <button id="modal-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div id="toasts"></div>
+<script src="renderer.js"></script>
+</body>
+</html>

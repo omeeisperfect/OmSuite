@@ -1,0 +1,74 @@
+/* OmSuite Windows — local styles only. No web fonts, no CDN. */
+:root { --accent: #10b981; }
+html[data-theme="dark"] {
+  --bg: #0b0f0e; --surface: #141a18; --surface2: #1d2623; --border: #2a3632;
+  --text: #e7efec; --muted: #93a49d; --hover: #22332d; --input-bg: #101715;
+}
+html[data-theme="light"] {
+  --bg: #f4f4f5; --surface: #ffffff; --surface2: #eef2f0; --border: #d4d4d8;
+  --text: #18181b; --muted: #5b6662; --hover: #e4ebe8; --input-bg: #ffffff;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, "Segoe UI", Arial, sans-serif; font-size: 14px; }
+button, input, select, textarea { font: inherit; color: var(--text); }
+button { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+button:hover { background: var(--hover); }
+button:disabled { opacity: .5; cursor: default; }
+input[type="text"], input[type="search"], select { background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+#app { display: flex; height: 100vh; overflow: hidden; }
+#sidebar { width: 260px; min-width: 180px; max-width: 480px; background: var(--surface); border-right: 1px solid var(--border); padding: 16px; overflow-y: auto; flex-shrink: 0; }
+#sidebar-resizer { width: 5px; cursor: col-resize; background: transparent; flex-shrink: 0; }
+#sidebar-resizer:hover { background: var(--accent); }
+#brand { color: var(--accent); margin: 0 0 2px; font-size: 24px; }
+#tagline { color: var(--muted); margin: 0 0 16px; font-size: 12px; }
+.nav-btn { display: block; width: 100%; text-align: left; margin-bottom: 6px; }
+.nav-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+#side-favs h2, h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+#fav-list button, #recent-list button { display: block; width: 100%; text-align: left; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#privacy-note { color: var(--muted); font-size: 12px; margin-top: 24px; }
+#main { flex: 1; padding: 20px; overflow-y: auto; min-width: 0; }
+.view { display: none; }
+.view.active { display: block; }
+.cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.card { display: flex; flex-direction: column; gap: 6px; padding: 16px; min-width: 200px; text-align: left; }
+.card span { color: var(--muted); font-size: 13px; }
+.toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.toolbar input[type="search"], .toolbar input[type="text"] { flex: 1; min-width: 160px; }
+#path-input { flex: 1; }
+#breadcrumbs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+#breadcrumbs button { border: none; background: none; padding: 2px 4px; color: var(--accent); }
+#breadcrumbs span { color: var(--muted); }
+#file-area { border: 1px solid var(--border); border-radius: 8px; min-height: 300px; background: var(--surface); overflow: auto; }
+#file-list.list .row { display: flex; gap: 10px; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); align-items: center; }
+#file-list.list .row.selected, #file-list.grid .card-item.selected { background: var(--hover); outline: 1px solid var(--accent); }
+#file-list.grid { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px; }
+#file-list.grid .card-item { width: 140px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; overflow: hidden; }
+#file-list.grid .card-item .fname { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#file-list.details table { width: 100%; border-collapse: collapse; }
+#file-list.details th, #file-list.details td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+#file-list.details tr.selected { background: var(--hover); }
+.row .fname, .card-item .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .fmeta { color: var(--muted); font-size: 12px; }
+.empty-state { padding: 40px; text-align: center; color: var(--muted); }
+.empty-state button { margin-top: 12px; }
+.statusbar { color: var(--muted); font-size: 12px; padding: 8px 2px; }
+.hint, .muted { color: var(--muted); font-size: 13px; }
+.hidden { display: none !important; }
+#ed-pathbar { margin-bottom: 8px; }
+#ed-dirty { color: #f59e0b; margin-left: 8px; }
+#ed-body { display: flex; gap: 10px; height: 55vh; min-height: 300px; }
+#ed-text { flex: 1; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-family: Consolas, "Courier New", monospace; font-size: 14px; line-height: 1.5; resize: none; }
+#ed-preview { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; overflow-y: auto; background: var(--surface); }
+#ed-preview pre { background: var(--surface2); padding: 10px; overflow-x: auto; border-radius: 6px; }
+#ed-preview code { font-family: Consolas, monospace; }
+fieldset { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; padding: 14px; }
+fieldset label { display: block; margin-bottom: 6px; }
+fieldset .row { display: flex; gap: 8px; align-items: center; }
+fieldset .row input[type="text"] { flex: 1; }
+#modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
+#modal { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; width: 480px; max-width: 90vw; }
+#modal input[type="text"] { width: 100%; margin-top: 8px; }
+#modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+#toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
+.toast { background: var(--surface2); border: 1px solid var(--border); border-left: 4px solid var(--accent); padding: 10px 14px; border-radius: 8px; max-width: 420px; }
+.toast.error { border-left-color: #ef4444; }

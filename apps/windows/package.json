@@ -1,0 +1,1 @@
+{"description":"OmSuite — Everything. One Workspace. Local-first productivity suite for Windows (File Manager + Text/Code Editor + Settings core).","devDependencies":{"electron":"45.2.1"},"main":"src/main.js","name":"omsuite","private":true,"scripts":{"smoke":"electron . --smoke","start":"electron .","test":"node --test"},"version":"0.1.0"}

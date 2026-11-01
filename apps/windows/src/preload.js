@@ -1,0 +1,48 @@
+// OmSuite Windows — preload bridge. The renderer runs with nodeIntegration OFF
+// and contextIsolation ON; it may only call the narrow API below. It never
+// receives raw fs access, shell access, or dialog access beyond these calls.
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('omsuite', {
+  app: {
+    getInfo: () => ipcRenderer.invoke('app:get-info'),
+    quit: () => ipcRenderer.invoke('app:quit'),
+  },
+  files: {
+    list: (dir) => ipcRenderer.invoke('files:list', dir),
+    createFolder: (parent, name) => ipcRenderer.invoke('files:create-folder', parent, name),
+    rename: (entryPath, newName) => ipcRenderer.invoke('files:rename', entryPath, newName),
+    copy: (src, destDir) => ipcRenderer.invoke('files:copy', src, destDir),
+    move: (src, destDir) => ipcRenderer.invoke('files:move', src, destDir),
+    duplicate: (src) => ipcRenderer.invoke('files:duplicate', src),
+    delete: (entryPath) => ipcRenderer.invoke('files:delete', entryPath),
+    properties: (entryPath) => ipcRenderer.invoke('files:properties', entryPath),
+    openPath: (entryPath) => ipcRenderer.invoke('files:open-path', entryPath),
+    homeDir: () => ipcRenderer.invoke('files:home-dir'),
+  },
+  dialogs: {
+    pickFolder: () => ipcRenderer.invoke('dialogs:pick-folder'),
+    pickFiles: () => ipcRenderer.invoke('dialogs:pick-files'),
+    pickTextFile: () => ipcRenderer.invoke('dialogs:pick-text-file'),
+    pickSaveFile: (defaultPath, ext) => ipcRenderer.invoke('dialogs:pick-save-file', defaultPath, ext),
+  },
+  editor: {
+    read: (filePath) => ipcRenderer.invoke('editor:read', filePath),
+    write: (filePath, text) => ipcRenderer.invoke('editor:write', filePath, text),
+    validateJson: (text) => ipcRenderer.invoke('editor:validate-json', text),
+  },
+  settings: {
+    get: () => ipcRenderer.invoke('settings:get'),
+    set: (patch) => ipcRenderer.invoke('settings:set', patch),
+    addFavourite: (folderPath) => ipcRenderer.invoke('settings:add-favourite', folderPath),
+    removeFavourite: (folderPath) => ipcRenderer.invoke('settings:remove-favourite', folderPath),
+    addRecent: (entry) => ipcRenderer.invoke('settings:add-recent', entry),
+    clearRecents: () => ipcRenderer.invoke('settings:clear-recents'),
+    clearCache: () => ipcRenderer.invoke('settings:clear-cache'),
+  },
+  ui: {
+    showContextMenu: (kind, payload) => ipcRenderer.invoke('ui:context-menu', kind, payload),
+    onContextAction: (cb) => ipcRenderer.on('ui:context-action', (_e, action) => cb(action)),
+    onMenuAction: (cb) => ipcRenderer.on('ui:menu-action', (_e, action) => cb(action)),
+  },
+});

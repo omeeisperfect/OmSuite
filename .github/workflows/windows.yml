@@ -1,0 +1,69 @@
+# OmSuite — Windows CI (unsigned installer build)
+#
+# Builds the Windows app on a GitHub-hosted Windows runner and produces an
+# NSIS installer. The installer is UNSIGNED: no code-signing certificate
+# is available, no signing secret exists in this workflow, and Windows
+# SmartScreen will warn on first install of an unsigned build. That is
+# stated honestly here and in docs/BUILD_STATUS.md; it must never be
+# described as a signed release.
+#
+# Why a Windows runner: the Linux development VM cannot build the NSIS
+# installer (electron-builder shells out to Wine on Linux, and Wine is
+# absent there — see docs/BLOCKERS.md B-2). A windows-latest runner has
+# native Windows tooling, so this is the designated Windows build route.
+name: Windows CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/windows/**'
+      - '.github/workflows/windows.yml'
+  pull_request:
+    paths:
+      - 'apps/windows/**'
+      - '.github/workflows/windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-installer:
+    name: Test + build unsigned NSIS installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/windows
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/windows/package-lock.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build unsigned NSIS installer (x64)
+        # electron-builder is downloaded on demand at the pinned version
+        # (see scripts/build-windows.ps1); it is deliberately NOT a
+        # dependency in package.json. No --publish flag: no release is
+        # published from CI. The output is unsigned (see header comment).
+        run: npx --yes electron-builder@26.18.0 --win nsis --x64
+
+      - name: Upload unsigned installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmSuite-windows-installer-unsigned
+          path: apps/windows/dist/*.exe
+          if-no-files-found: error
+          retention-days: 30

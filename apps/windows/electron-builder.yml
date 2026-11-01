@@ -1,0 +1,24 @@
+# electron-builder config — used ONLY on a Windows machine / Windows CI runner.
+# This Linux VM cannot produce the Windows installer (no Wine, no Windows SDK).
+# See README.md "Build the Windows installer" and scripts/build-windows.ps1.
+appId: com.nimu.omsuite
+productName: OmSuite
+copyright: Copyright © OmSuite (licence not yet selected — no LICENSE file is shipped)
+directories:
+  output: dist
+files:
+  - src/**
+  - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: OmSuite-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: OmSuite
