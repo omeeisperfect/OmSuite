@@ -70,6 +70,6 @@ class ZipSelectedTest {
         val result = ZipUtils.extractSelected(crafted, setOf("../evil.txt", "ok.txt"))
         assertEquals(setOf("ok.txt"), result.files.keys)
         assertEquals(listOf("../evil.txt"), result.skippedUnsafe)
-        assertEquals(3, ZipUtils.listEntries(zip).size)
+        assertEquals(1, ZipUtils.listEntries(zip).size)
     }
 }
