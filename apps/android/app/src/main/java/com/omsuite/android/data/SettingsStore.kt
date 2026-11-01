@@ -18,6 +18,7 @@ class SettingsStore(private val context: Context) {
     private val themeKey = stringPreferencesKey("theme")
     private val defaultFolderKey = stringPreferencesKey("default_folder_uri")
     private val defaultFolderNameKey = stringPreferencesKey("default_folder_name")
+    private val conversionHistoryKey = stringPreferencesKey("conversion_history")
 
     val theme: Flow<ThemeChoice> = context.settingsDataStore.data.map { prefs ->
         runCatching { ThemeChoice.valueOf(prefs[themeKey] ?: "SYSTEM") }.getOrDefault(ThemeChoice.SYSTEM)
@@ -35,5 +36,36 @@ class SettingsStore(private val context: Context) {
             if (uri == null) { it.remove(defaultFolderKey); it.remove(defaultFolderNameKey) }
             else { it[defaultFolderKey] = uri; if (name != null) it[defaultFolderNameKey] = name }
         }
+    }
+
+    /** Newest-first conversion history (max 10 entries), stored locally only. */
+    val conversionHistory: Flow<List<String>> = context.settingsDataStore.data.map { prefs ->
+        (prefs[conversionHistoryKey] ?: "").lines().filter { it.isNotBlank() }
+    }
+
+    suspend fun addConversionHistory(entry: String) {
+        context.settingsDataStore.edit { prefs ->
+            val current = (prefs[conversionHistoryKey] ?: "").lines().filter { it.isNotBlank() }
+            prefs[conversionHistoryKey] = (listOf(entry) + current).take(10).joinToString("\n")
+        }
+    }
+
+    suspend fun clearConversionHistory() {
+        context.settingsDataStore.edit { it.remove(conversionHistoryKey) }
+    }
+
+    /**
+     * Reading position per book: value is the chapter index as a string.
+     * [bookId] is the book's SAF Uri string; keys are per-book, local only.
+     */
+    fun bookmarkFor(bookId: String): Flow<String?> =
+        context.settingsDataStore.data.map { it[stringPreferencesKey("bookmark_$bookId")] }
+
+    suspend fun setBookmark(bookId: String, value: String) {
+        context.settingsDataStore.edit { it[stringPreferencesKey("bookmark_$bookId")] = value }
+    }
+
+    suspend fun clearBookmark(bookId: String) {
+        context.settingsDataStore.edit { it.remove(stringPreferencesKey("bookmark_$bookId")) }
     }
 }

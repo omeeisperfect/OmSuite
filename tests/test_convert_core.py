@@ -102,5 +102,72 @@ class ConvertExtraTest(unittest.TestCase):
         self.assertIn('"007"', pretty)  # still a string after pretty-print
 
 
+class ConvertCorrectionTest(unittest.TestCase):
+    """Correction pass (1 Nov 2026): dispatcher, result object,
+    unsupported pairs, file helper, history. Existing tests untouched."""
+
+    def test_dispatcher_routes_verified_pairs(self):
+        result = cc.convert("a,b\n1,2\n", "csv", "json")
+        self.assertEqual(result.source_format, "csv")
+        self.assertEqual(result.target_format, "json")
+        self.assertTrue(result.source_unchanged)
+        self.assertIn('"a": "1"', result.output_text)
+        md = cc.convert("# Title\n", "markdown", "txt")
+        self.assertEqual(md.output_text, "Title\n")
+        pretty = cc.convert('{"b":1}', "json", "json")
+        self.assertIn('\n  "b": 1', pretty.output_text)
+        mini = cc.convert('{\n  "b": 1\n}', "json", "json",
+                          minify=True)
+        self.assertEqual(mini.output_text, '{"b":1}')
+
+    def test_unsupported_pairs_raise_clearly(self):
+        from errors import UnsupportedFormatError
+        for src, dst in [("docx", "pdf"), ("pdf", "txt"), ("xlsx", "csv"),
+                         ("txt", "txt"), ("png", "jpg"), ("md", "pdf")]:
+            with self.assertRaises(UnsupportedFormatError, msg=f"{src}->{dst}"):
+                cc.convert("x", src, dst)
+        try:
+            cc.convert("x", "docx", "pdf")
+        except UnsupportedFormatError as exc:
+            self.assertIn("docx", str(exc))
+
+    def test_convert_file_keeps_source_and_records_history(self):
+        import tempfile
+        from pathlib import Path
+        history = cc.ConversionHistory()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "data.csv"
+            src.write_text("a,b\n1,2\n")
+            before = src.read_bytes()
+            result = cc.convert_file(src, root / "data.json",
+                                     history=history)
+            self.assertEqual(src.read_bytes(), before)  # source unchanged
+            self.assertEqual((root / "data.json").read_text(),
+                             result.output_text)
+            self.assertEqual(len(history), 1)
+            self.assertEqual(history.records[0].target_format, "json")
+            history.clear()
+            self.assertEqual(len(history), 0)
+            # Overwrite refusal + self-conversion refusal.
+            with self.assertRaises(Exception):
+                cc.convert_file(src, root / "data.json")
+            with self.assertRaises(Exception):
+                cc.convert_file(src, src)
+
+    def test_convert_file_missing_and_bad_json(self):
+        import tempfile
+        from pathlib import Path
+        from errors import MalformedInputError, NotFoundError
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertRaises(NotFoundError, cc.convert_file,
+                              root / "gone.csv", root / "out.json")
+            bad = root / "bad.json"
+            bad.write_text("{not json")
+            self.assertRaises(MalformedInputError, cc.convert_file,
+                              bad, root / "out.csv")
+
+
 if __name__ == "__main__":
     unittest.main()

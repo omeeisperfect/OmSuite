@@ -179,5 +179,123 @@ class XlsxTest(unittest.TestCase):
         self.assertRaises(Exception, sc.sheet_from_xlsx, self.root / "gone.xlsx")
 
 
+class SheetCorrectionTest(unittest.TestCase):
+    """Correction pass (1 Nov 2026): error values, bad refs, workbook,
+    sort/filter. Existing tests above are untouched."""
+
+    def test_bad_ref_is_ref_error_not_zero(self):
+        s = sc.Sheet()
+        s.set_cell("A1", 5)
+        for bad in ("=XFE1", "=A0", "=A1048577", "=ZZZ9999999"):
+            s.set_cell("B1", bad)
+            values, errors = s.recalculate()
+            self.assertIn("B1", errors, bad)
+            self.assertEqual(s.display_values()["B1"], "#REF!", bad)
+            value, message = s.value_or_error("B1")
+            self.assertEqual(value, "#REF!")
+        # A healthy cell next to the bad one still computes.
+        s.set_cell("C1", "=A1*2")
+        values, errors = s.recalculate()
+        self.assertEqual(values["C1"], 10)
+
+    def test_display_values_and_value_or_error(self):
+        s = sc.Sheet()
+        s.set_cell("A1", 4)
+        s.set_cell("B1", "=A1/0")
+        s.set_cell("B2", "=B3")
+        s.set_cell("B3", "=B2")  # cycle
+        s.set_cell("B4", "=FOO(A1)")
+        s.set_cell("B5", "=A1+1")  # healthy
+        display = s.display_values()
+        self.assertEqual(display["B1"], "#DIV/0!")
+        self.assertEqual(display["B2"], "#CYCLE!")
+        self.assertEqual(display["B3"], "#CYCLE!")
+        self.assertEqual(display["B4"], "#VALUE!")
+        self.assertEqual(display["B5"], 5)
+        value, message = s.value_or_error("B1")
+        self.assertEqual(value, "#DIV/0!")
+        self.assertIn("Division by zero", message)
+        self.assertEqual(s.value_or_error("B5"), (5, None))
+        self.assertEqual(s.value_or_error("nope")[0], "#REF!")
+
+    def test_sum_bad_range_is_error_not_crash(self):
+        s = sc.Sheet()
+        s.set_cell("A1", 1)
+        s.set_cell("B1", "=SUM(A1:XFE5)")
+        s.set_cell("C1", "=A1+1")
+        values, errors = s.recalculate()
+        self.assertIn("B1", errors)
+        self.assertEqual(values["C1"], 2)
+
+    def test_csv_error_formula_roundtrip(self):
+        s = sc.Sheet()
+        s.set_cell("A1", 2)
+        s.set_cell("B1", "=A1/0")
+        reloaded = sc.sheet_from_csv(sc.sheet_to_csv(s))
+        self.assertEqual(reloaded.get_cell("B1"), "=A1/0")
+        self.assertEqual(reloaded.display_values()["B1"], "#DIV/0!")
+
+    def test_workbook(self):
+        wb = sc.Workbook()
+        self.assertEqual(wb.sheet_names, [])
+        data = wb.add_sheet("Data")
+        data.set_cell("A1", 1)
+        self.assertEqual(wb.active, "Data")
+        wb.add_sheet("Calc")
+        self.assertRaises(Exception, wb.add_sheet, "Data")  # duplicate
+        self.assertRaises(Exception, wb.add_sheet, "Bad/Name")
+        wb.rename_sheet("Calc", "Math")
+        self.assertEqual(wb.sheet_names, ["Data", "Math"])
+        self.assertIs(wb.sheet("Data"), data)
+        self.assertRaises(Exception, wb.sheet, "Nope")
+        wb.remove_sheet("Data")
+        self.assertEqual(wb.active, "Math")
+        self.assertEqual(len(wb), 1)
+
+    def test_sort_rows_asc_desc_header_errors_last(self):
+        s = sc.Sheet()
+        s.set_cell("A1", "name")
+        s.set_cell("B1", "score")
+        rows = [("amy", 30), ("bob", 10), ("cy", 20)]
+        for i, (name, score) in enumerate(rows, start=2):
+            s.set_cell(f"A{i}", name)
+            s.set_cell(f"B{i}", score)
+        s.set_cell("A5", "zed")  # no score: sorts last either way
+        order = sc.sort_rows(s, "A1:B5", key_col="B", header=True)
+        self.assertEqual(order, [1, 3, 4, 2, 5])
+        self.assertEqual([s.get_cell(f"A{r}") for r in range(1, 6)],
+                         ["name", "bob", "cy", "amy", "zed"])
+        order = sc.sort_rows(s, "A2:B5", key_col="B", descending=True)
+        self.assertEqual([s.get_cell(f"A{r}") for r in range(2, 6)],
+                         ["amy", "cy", "bob", "zed"])
+        self.assertRaises(MalformedInputError, sc.sort_rows,
+                          s, "A1:B5", key_col="C")
+
+    def test_sort_rows_with_formula_errors_last(self):
+        s = sc.Sheet()
+        s.set_cell("A1", "x")
+        s.set_cell("B1", "=1/0")
+        s.set_cell("A2", "y")
+        s.set_cell("B2", 5)
+        sc.sort_rows(s, "A1:B2", key_col="B")
+        self.assertEqual(s.get_cell("A1"), "y")
+        self.assertEqual(s.get_cell("A2"), "x")
+
+    def test_filter_rows(self):
+        s = sc.Sheet()
+        for i, (name, score) in enumerate([("a", 5), ("b", 15), ("c", 25)],
+                                          start=1):
+            s.set_cell(f"A{i}", name)
+            s.set_cell(f"B{i}", score)
+        hits = sc.filter_rows(s, "A1:B3",
+                              lambda row: row["B"] is not None and row["B"] >= 15)
+        self.assertEqual(hits, [2, 3])
+        # Broken formulas appear as #...! values, never crash the filter.
+        s.set_cell("B3", "=1/0")
+        hits = sc.filter_rows(s, "A1:B3",
+                              lambda row: row["B"] == "#DIV/0!")
+        self.assertEqual(hits, [3])
+
+
 if __name__ == "__main__":
     unittest.main()

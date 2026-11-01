@@ -135,5 +135,145 @@ class FileCoreTest(unittest.TestCase):
             os.chmod(ro, 0o700)
 
 
+class FileCoreCorrectionTest(unittest.TestCase):
+    """Correction pass (1 Nov 2026): batch ops, properties, read-only
+    handling, confirmation, filters, temp cleanup. Existing tests above
+    are untouched."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        # Restore perms so cleanup never fails on chmodded fixtures.
+        for p in self.root.rglob("*"):
+            try:
+                os.chmod(p, 0o700)
+            except OSError:
+                pass
+        self.tmp.cleanup()
+
+    def _file(self, name, content=b"hello"):
+        p = self.root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(content)
+        return p
+
+    def test_properties_file_dir_and_symlink(self):
+        f = self._file("sub/a.txt", b"12345")
+        self._file("sub/b.txt", b"12")
+        props = fc.properties(self.root / "sub")
+        self.assertTrue(props.is_dir)
+        self.assertEqual(props.size, 7)
+        self.assertEqual(props.file_count, 2)
+        self.assertFalse(props.readonly)
+        fprops = fc.properties(f)
+        self.assertEqual(fprops.size, 5)
+        self.assertEqual(fprops.file_count, 0)
+        link = self.root / "link.txt"
+        os.symlink(f, link)
+        lprops = fc.properties(link)
+        self.assertTrue(lprops.is_symlink)
+        self.assertRaises(NotFoundError, fc.properties, self.root / "gone")
+
+    def test_readonly_refused_even_as_root(self):
+        # Mode bits are checked explicitly, so this holds for root too
+        # (os.access alone would pass for uid 0).
+        src = self._file("a.txt", b"A")
+        dst = self._file("b.txt", b"OLD")
+        os.chmod(dst, 0o444)
+        try:
+            self.assertRaises(Exception, fc.copy, src, dst, policy="overwrite")
+            self.assertEqual(dst.read_bytes(), b"OLD")
+            self.assertRaises(Exception, fc.atomic_write, dst, b"NEW")
+            self.assertEqual(dst.read_bytes(), b"OLD")
+        finally:
+            os.chmod(dst, 0o644)
+
+    def test_copy_refuses_nested_symlink(self):
+        d = self.root / "tree"
+        d.mkdir()
+        (d / "real.txt").write_text("R")
+        os.symlink(d / "real.txt", d / "link.txt")
+        self.assertRaises(UnsafePathError, fc.copy, d, self.root / "copy")
+
+    def test_copy_many_progress_and_continue_on_error(self):
+        a = self._file("a.txt", b"A")
+        b = self._file("b.txt", b"B")
+        (self.root / "out").mkdir()
+        seen = []
+        result = fc.copy_many(
+            [(a, self.root / "out" / "a.txt"),
+             (self.root / "gone.txt", self.root / "out" / "gone.txt"),
+             (b, self.root / "out" / "b.txt")],
+            progress=lambda done, total, name: seen.append((done, total, name)),
+            continue_on_error=True)
+        self.assertEqual(len(result.succeeded), 2)
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("gone.txt", list(result.errors)[0])
+        self.assertEqual(seen, [(1, 3, "a.txt"), (2, 3, "gone.txt"),
+                                (3, 3, "b.txt")])
+        self.assertEqual((self.root / "out" / "b.txt").read_bytes(), b"B")
+
+    def test_move_many_abort_on_first_error(self):
+        a = self._file("a.txt", b"A")
+        with self.assertRaises(NotFoundError):
+            fc.move_many([(self.root / "gone.txt", self.root / "x.txt"),
+                          (a, self.root / "y.txt")])
+        self.assertTrue(a.exists())  # abort: later items never ran
+
+    def test_confirm_overwrite_declined_is_skip(self):
+        src = self._file("a.txt", b"NEW")
+        dst = self._file("b.txt", b"OLD")
+        out = fc.copy(src, dst, policy="overwrite",
+                      confirm_overwrite=lambda p: False)
+        self.assertIsNone(out)
+        self.assertEqual(dst.read_bytes(), b"OLD")
+        out = fc.copy(src, dst, policy="overwrite",
+                      confirm_overwrite=lambda p: True)
+        self.assertEqual(dst.read_bytes(), b"NEW")
+        # The callback is only for overwrite: rename policy never asks.
+        asked = []
+        fc.copy(src, self.root / "c.txt", policy="rename",
+                confirm_overwrite=lambda p: asked.append(p) or True)
+        self.assertEqual(asked, [])
+        # Move with a declined confirmation does NOT move the source.
+        src2 = self._file("m.txt", b"M")
+        dst2 = self._file("n.txt", b"N")
+        self.assertIsNone(fc.move(src2, dst2, policy="overwrite",
+                                  confirm_overwrite=lambda p: False))
+        self.assertTrue(src2.exists())
+        self.assertEqual(dst2.read_bytes(), b"N")
+
+    def test_search_filters_and_filter_entries(self):
+        self._file("keep.txt", b"banana")
+        self._file("keep.log", b"banana")
+        self._file("big.txt", b"x" * 500)
+        found = fc.search(self.root, "banana", search_content=True,
+                          extensions=["txt"])
+        self.assertEqual([e.name for e in found], ["keep.txt"])
+        found = fc.search(self.root, "", extensions=[".txt"], min_size=100)
+        self.assertEqual([e.name for e in found], ["big.txt"])
+        entries = fc.list_dir(self.root)
+        self.assertEqual(sorted(e.name for e in fc.filter_entries(
+            entries, files_only=True, max_size=10)),
+            ["keep.log", "keep.txt"])
+
+    def test_cleanup_temp_files_only_removes_engine_temps(self):
+        (self.root / ".doc.txt.om_tmp_ab12cd34").write_bytes(b"partial")
+        (self.root / ".hidden").write_text("mine")
+        (self.root / "doc.txt").write_text("real")
+        removed = fc.cleanup_temp_files(self.root)
+        self.assertEqual([p.name for p in removed],
+                         [".doc.txt.om_tmp_ab12cd34"])
+        self.assertTrue((self.root / ".hidden").exists())
+        self.assertTrue((self.root / "doc.txt").exists())
+
+    def test_copy_to_missing_dir_is_not_found(self):
+        src = self._file("a.txt", b"A")
+        self.assertRaises(NotFoundError, fc.copy, src,
+                          self.root / "no-dir" / "b.txt")
+
+
 if __name__ == "__main__":
     unittest.main()

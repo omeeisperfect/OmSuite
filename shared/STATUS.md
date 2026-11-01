@@ -164,3 +164,102 @@ test_permission_denied_on_readonly_dir). No existing test was weakened;
 two new-test fixture mistakes (unquoted comma; score-column mix-up)
 were fixed in the new tests, not in engines, except the tokenizer bug
 above which was a genuine engine fix.
+
+## Addendum — 1 Nov 2026 (CORRECTION pass, shared engines only)
+
+Scope kept strictly to `shared/*.py` (+ their tests in `tests/`):
+no apps/, docs/, .github/, no git push, no LICENSE, no secrets. Only
+the Python stdlib is used. Every behaviour below has tests; no existing
+test was modified (49 new tests were APPENDED to the existing files).
+
+- `file_core.py`: `copy_many` / `move_many` (progress, ok/skipped/
+  errors, abort-vs-collect), `properties` (recursive size/counts,
+  symlink-aware), `filter_entries` + search `extensions`/`min_size`/
+  `max_size`, `confirm_overwrite` on copy/move/rename/atomic_write
+  (decline == skip), read-only decided from mode bits (holds even for
+  root — the old `os.access`-only check passed for uid 0), missing
+  destination directory is NOT_FOUND (was a misleading permission
+  error), directory copies containing any symlink are refused,
+  atomic-write temps carry a `.om_tmp_` marker and
+  `cleanup_temp_files` removes exactly those (crash recovery).
+- `sheet_core.py`: out-of-grid references (`A0`, `XFE1`, `A1048577`,
+  bad ranges) are now `#REF!` errors, not silent 0s — this was a real
+  bug: `cell_value` looked up the absent key and returned 0. New:
+  `display_values()` / `value_or_error()` (`#DIV/0!` / `#VALUE!` /
+  `#REF!` / `#CYCLE!`), in-memory multi-sheet `Workbook`
+  (CSV/XLSX stay single-sheet, as documented), `sort_rows` (errors /
+  empties always last, header option) and `filter_rows` (broken cells
+  appear as `#...!` values, never crash the filter).
+- `slide_core.py`: `duplicate_slide` (independent copy after the
+  original), per-slide speaker `notes`, `export_html(include_notes=)`
+  (notes absent by default, escaped `<aside>` in handout mode), `clear`.
+- `pdf_core.py`: stream bodies sliced by direct `/Length` when it
+  plausibly ends at `endstream` (a body containing those bytes no
+  longer truncates the stream — tested with the word inside a string),
+  stream dict read from after the previous `endstream` (binary `<<`
+  bytes can't steal `/Filter`), per-stream decompression cap (default
+  50 MiB; over-cap streams skipped). `merge_pdfs` / `split_pdf` are
+  stubs raising UNSUPPORTED_FORMAT — no fake merge/split. Docstring
+  now lists layout/fonts/scanned/encrypted/editing/merge/split as NOT
+  supported.
+- `epub_core.py`: TOC from EPUB3 nav (levels + fragments) with EPUB2
+  NCX fallback, empty TOC when neither exists; `Bookmark` (dict
+  round-trip), `book_progress` (0.0–1.0, end is exactly 1.0),
+  `search_epub` (snippets, case-insensitive default); encrypted/DRM
+  EPUBs (`META-INF/encryption.xml`) and MOBI/AZW refused with
+  UNSUPPORTED_FORMAT. No images/styles/DRM — documented.
+- `archive_core.py`: encrypted entries refused (UNSUPPORTED_FORMAT,
+  never silently skipped); non-ZIP formats refused clearly (.rar/.7z/
+  .tar/.gz by name with non-ZIP bytes; a real ZIP misnamed .rar still
+  reads); `create` stores explicit entries for file-less directories
+  (ordinary trees stay file-only in browse, so the old exact-list test
+  still passes); extraction is temp-file + replace per entry (a failed
+  entry leaves an existing destination untouched — verified for CRC
+  failure under overwrite); bytes actually written are counted against
+  the size limits; failures midway attach `partial_paths` to the
+  exception (fixes old limitation L2); CRC mismatches become
+  MALFORMED_INPUT; nested ZIPs extract as opaque files, never expanded;
+  extracted files get mode 0644 (entry permission bits not restored).
+  RAR/7Z/TAR remain NOT supported.
+- `convert_core.py`: closed `convert` dispatcher returning a
+  `ConversionResult` (output + warnings + source_unchanged); every
+  unverified pair raises UNSUPPORTED_FORMAT naming the pair (incl.
+  txt->txt and docx->pdf). `convert_file` (extension-derived formats,
+  atomic destination write, default policy "error", src == dst
+  refused, source bytes verified unchanged) and in-memory
+  `ConversionHistory` (add / records / clear). Individual
+  `*_to_*` / `json_*` functions are unchanged.
+- `text_core.py`: `markdown_to_html` (headings, paragraphs, bold/italic,
+  code spans + fences, lists, blockquotes, rules, simple tables, links,
+  images) — text escaped BEFORE markup, so `<script>` renders as text;
+  unsafe link/image schemes (javascript:/data:/...) render as plain
+  text with a warning; one level of balanced parens in URLs is handled
+  (a `javascript:alert(1)` URL is refused whole, not cut at the inner
+  paren). `tokenize_code` / `tokens_to_html` (display-only heuristic,
+  never a parser). Both reject NUL (binary) and oversize input and
+  handle empty input.
+
+Test command: `cd ~/workspace/omsuite && python3 -m unittest discover -s tests`
+Before (this pass): 69 run, 68 pass, 0 fail, 1 skipped.
+After: 118 run, 117 pass, 0 fail, 1 skipped (same pre-existing root
+skip: test_permission_denied_on_readonly_dir — the new mode-bit
+read-only tests DO run as root and pass). No existing test was
+weakened; three new-test mistakes were fixed in the tests (a `json_minify`
+parameter shadowing the function of the same name in the new dispatcher
+— renamed to `minify`; a flag_bits fixture that `writestr` resets —
+patched byte-wise; a fence expectation missing `&#x27;` escaping).
+
+Still NOT tested / NOT implemented (honest):
+- Permission-denied on a real non-root user (old skip), Windows
+  file-locking, ENOSPC simulation, SAF/Kotlin ports, device runs.
+- The forged-header runtime size counter: a forged archive is verified
+  refused with no partial file, but via the CRC guard in the stdlib
+  reader rather than the new byte counter (the counter is
+  defense-in-depth for readers that don't enforce file_size).
+- Multi-sheet XLSX, DOCX/PPTX, PDF merge/split/editing, RAR/7Z/TAR,
+  EPUB writing, OCR, media transcoding: NOT implemented, and every one
+  of these now has a clear UNSUPPORTED_FORMAT path where a caller could
+  previously have hit a confusing error or a silent gap.
+- No LICENSE file added; no secrets/tokens/keystores used or stored
+  (grep over `shared/` + `tests/` for password/token/secret/keystore
+  returns only the pre-existing YAML `token` variable and test prose).

@@ -93,4 +93,26 @@ class History {
   canRedo() { return this.future.length > 0; }
 }
 
-module.exports = { validateJson, countWordsChars, findAll, replaceAllText, lineCol, History };
+// Encoding / line-ending metadata for the Code editor. The editor must
+// preserve what it found: a BOM stays a BOM, CRLF stays CRLF, so a
+// round-trip save does not rewrite a file's line endings behind the user.
+function detectTextMeta(text) {
+  const t = String(text || '');
+  const hasBom = t.charCodeAt(0) === 0xfeff;
+  const body = hasBom ? t.slice(1) : t;
+  const crlf = (body.match(/\r\n/g) || []).length;
+  const lfOnly = (body.replace(/\r\n/g, '').match(/\n/g) || []).length;
+  let lineEnding = 'lf';
+  if (crlf > 0 && lfOnly === 0) lineEnding = 'crlf';
+  else if (crlf > 0 && lfOnly > 0) lineEnding = 'mixed';
+  return { hasBom, lineEnding, crlfCount: crlf, lfCount: lfOnly };
+}
+
+function applyTextMeta(text, meta) {
+  let t = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (meta && meta.lineEnding === 'crlf') t = t.replace(/\n/g, '\r\n');
+  if (meta && meta.hasBom) t = '\uFEFF' + t.replace(/^\uFEFF/, '');
+  return t;
+}
+
+module.exports = { validateJson, countWordsChars, findAll, replaceAllText, lineCol, History, detectTextMeta, applyTextMeta };

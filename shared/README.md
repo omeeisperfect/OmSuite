@@ -14,11 +14,12 @@ we honestly support, with zero install risk).
 | `file_core.py` | list/sort/search, copy/move/rename/delete/duplicate, conflict resolution, atomic write, capped reads. |
 | `archive_core.py` | ZIP browse / extract-all / extract-selected / create; traversal, symlink and archive-bomb guards; progress + conflicts. |
 | `text_core.py` | TXT/MD/JSON/XML/YAML-subset read/write; encoding + line-ending preservation; JSON validation/formatting; safe previews. |
-| `convert_core.py` | Only the conversions actually implemented and tested (see below). |
-| `sheet_core.py` | Spreadsheet: A1 addressing, values, formulas (+ - * / parens, refs, SUM/AVERAGE), CSV + minimal single-sheet XLSX (stdlib OOXML). |
-| `epub_core.py` | EPUB reading: container.xml -> OPF manifest/spine -> chapter paragraphs (tags stripped). |
-| `pdf_core.py` | Best-effort PDF text: FlateDecode via zlib, Tj/TJ operators. No layout, no fonts, no OCR. |
-| `slide_core.py` | Slide-deck model + single-file HTML export (escaped text, images embedded as data URIs when possible). |
+| `convert_core.py` | Only the conversions actually implemented and tested (see below), plus a closed `convert` dispatcher (anything else = UNSUPPORTED_FORMAT), `convert_file` (source never modified) and in-memory `ConversionHistory`. |
+| `sheet_core.py` | Spreadsheet: A1 addressing, values, formulas (+ - * / parens, refs, SUM/AVERAGE) with `#DIV/0!` / `#VALUE!` / `#REF!` / `#CYCLE!` display values, multi-sheet `Workbook` (in memory), sort/filter, CSV + minimal single-sheet XLSX (stdlib OOXML). |
+| `epub_core.py` | EPUB reading: container.xml -> OPF manifest/spine -> chapter paragraphs (tags stripped), TOC (nav / NCX), bookmarks, progress, search. Encrypted/DRM and MOBI/AZW refused with a clear error. |
+| `pdf_core.py` | Best-effort PDF text: FlateDecode via zlib, Tj/TJ operators, `/Length` stream slicing, per-stream decompression cap. No layout, no fonts, no OCR, no merge/split (stubs raise UNSUPPORTED_FORMAT). |
+| `slide_core.py` | Slide-deck model (add/insert/delete/duplicate/move, speaker notes) + single-file HTML export (escaped text, images embedded as data URIs when possible). |
+| `text_core.py` | Also: safe Markdown->HTML subset preview and a display-only code tokenizer (`tokenize_code` / `tokens_to_html`). |
 | `CONTRACTS.md` | Language-neutral spec the Android/Windows apps must mirror. |
 | `STATUS.md` | Files, exact commands + output, test numbers, limitations, Not Tested items, blockers. |
 
@@ -41,11 +42,15 @@ Python 3.12.3 was used here; any Python ≥ 3.10 should work (the code uses
 - CSV ↔ Markdown table (`|` escaped; separator row required)
 
 NOT implemented and NOT claimed: DOCX / PPTX editing or conversion,
-PDF editing/merge/split, EPUB writing, RAR / 7Z archives, OCR. XLSX
-(single sheet only), EPUB reading and best-effort PDF text extraction
-now HAVE tested engines (see the module docstrings for their exact
-limits); anything beyond those limits is still Not verified. Any stream
-claiming more must first land a tested engine here.
+PDF editing/merge/split, EPUB writing, RAR / 7Z / TAR archives, OCR.
+XLSX (single sheet only), EPUB reading and best-effort PDF text
+extraction now HAVE tested engines (see the module docstrings for their
+exact limits); anything beyond those limits is still Not verified. Any
+stream claiming more must first land a tested engine here. Where an
+operation is deliberately unbuilt, the engine raises a clear
+UNSUPPORTED_FORMAT error (PDF merge/split stubs, non-ZIP archives,
+encrypted archive entries, encrypted/DRM EPUBs, MOBI/AZW, unsupported
+conversion pairs) instead of failing silently or producing garbage.
 
 ## How Android / Windows should adapt these contracts
 

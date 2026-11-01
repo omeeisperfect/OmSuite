@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,7 +29,16 @@ import com.omsuite.android.OmSuiteApp
 import com.omsuite.android.util.Converter
 import kotlinx.coroutines.launch
 
-private val FORMATS = listOf("CSV", "JSON", "TXT", "MD")
+/** The ONLY pairs offered: every other combination is not a working conversion. */
+private val PAIRS = listOf(
+    Pair("CSV", "JSON"),
+    Pair("JSON", "CSV"),
+    Pair("TXT", "MD"),
+    Pair("JSON", "JSON") // pretty-print
+)
+
+private fun pairLabel(from: String, to: String): String =
+    if (from == "JSON" && to == "JSON") "JSON → JSON (pretty-print)" else "$from → $to"
 
 /**
  * Converter: only real conversions. Unsupported pairs show "Not supported"
@@ -38,15 +48,27 @@ private val FORMATS = listOf("CSV", "JSON", "TXT", "MD")
 @Composable
 fun ConverterScreen(app: OmSuiteApp) {
     val scope = rememberCoroutineScope()
+    val history by app.settings.conversionHistory.collectAsState(initial = emptyList())
     var input by remember { mutableStateOf("") }
     var output by remember { mutableStateOf("") }
-    var from by remember { mutableStateOf("CSV") }
-    var to by remember { mutableStateOf("JSON") }
+    var pairIndex by remember { mutableStateOf(0) }
     var status by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var fromMenu by remember { mutableStateOf(false) }
-    var toMenu by remember { mutableStateOf(false) }
+    var pairMenu by remember { mutableStateOf(false) }
+    val from = PAIRS[pairIndex].first
+    val to = PAIRS[pairIndex].second
 
+    val openPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    input = app.files.readText(uri)
+                    status = "Loaded input from file (source file untouched)."
+                    error = null
+                } catch (e: Exception) { error = "Could not read file: ${e.message}" }
+            }
+        }
+    }
     val savePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
             scope.launch {
@@ -62,18 +84,24 @@ fun ConverterScreen(app: OmSuiteApp) {
         try {
             val result = Converter.convert(input, from, to)
             if (result == null) {
+                // Unreachable with the pair-only selector, kept as a safety net.
                 output = ""
                 error = null
-                status = "Not supported: $from → $to is not a real conversion in OmSuite. " +
-                    "Supported: CSV ↔ JSON, TXT → Markdown (heuristic), JSON pretty-print."
+                status = "Not supported: $from → $to is not a real conversion in OmSuite."
             } else {
                 output = result
                 error = null
                 status = when {
                     from == "TXT" && to == "MD" ->
-                        "Converted with the TXT → Markdown heuristic (ALL-CAPS or “:” lines become headings)."
+                        "Converted with the TXT → Markdown heuristic (ALL-CAPS or “:” lines become headings). Formatting may be lost — the source file is untouched."
                     from == "JSON" && to == "JSON" -> "JSON pretty-printed."
-                    else -> "Converted $from → $to."
+                    else -> "Converted $from → $to. The source file/text is untouched."
+                }
+                scope.launch {
+                    val stamp = java.text.DateFormat.getDateTimeInstance(
+                        java.text.DateFormat.SHORT, java.text.DateFormat.SHORT
+                    ).format(java.util.Date())
+                    app.settings.addConversionHistory("${pairLabel(from, to)} • $stamp")
                 }
             }
         } catch (e: Exception) {
@@ -86,28 +114,24 @@ fun ConverterScreen(app: OmSuiteApp) {
     Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
         Text("Converter", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Supported conversions only: CSV ↔ JSON, TXT → Markdown (heuristic, labelled as such), " +
-                "and JSON pretty-print. Anything else shows “Not supported” — no fake output.",
+            "Only verified conversions are offered here: CSV ↔ JSON, TXT → Markdown (heuristic, labelled as such), " +
+                "and JSON pretty-print. No other pair is offered as working, and no output is ever fabricated. " +
+                "Conversion may lose formatting — the source is never modified.",
             style = MaterialTheme.typography.bodySmall
         )
         Row(Modifier.padding(vertical = 8.dp)) {
             Column {
-                OutlinedButton(onClick = { fromMenu = true }) { Text("From: $from") }
-                DropdownMenu(expanded = fromMenu, onDismissRequest = { fromMenu = false }) {
-                    FORMATS.forEach { fmt ->
-                        DropdownMenuItem(text = { Text(fmt) }, onClick = { from = fmt; fromMenu = false })
+                OutlinedButton(onClick = { pairMenu = true }) { Text("Conversion: ${pairLabel(from, to)}") }
+                DropdownMenu(expanded = pairMenu, onDismissRequest = { pairMenu = false }) {
+                    PAIRS.forEachIndexed { index, pair ->
+                        DropdownMenuItem(
+                            text = { Text(pairLabel(pair.first, pair.second)) },
+                            onClick = { pairIndex = index; pairMenu = false }
+                        )
                     }
                 }
             }
-            Text(" → ", modifier = Modifier.padding(horizontal = 4.dp))
-            Column {
-                OutlinedButton(onClick = { toMenu = true }) { Text("To: $to") }
-                DropdownMenu(expanded = toMenu, onDismissRequest = { toMenu = false }) {
-                    FORMATS.forEach { fmt ->
-                        DropdownMenuItem(text = { Text(fmt) }, onClick = { to = fmt; toMenu = false })
-                    }
-                }
-            }
+            OutlinedButton(onClick = { openPicker.launch(arrayOf("text/*")) }, modifier = Modifier.padding(start = 4.dp)) { Text("Open file…") }
         }
         Row {
             Button(onClick = { convert() }) { Text("Convert") }
@@ -142,5 +166,16 @@ fun ConverterScreen(app: OmSuiteApp) {
                 "Nested JSON objects/arrays cannot become CSV rows and will report an error.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)
         )
+        Text("Conversion history (stored on this device only):", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp))
+        if (history.isEmpty()) {
+            Text("No conversions yet.", style = MaterialTheme.typography.bodySmall)
+        } else {
+            history.forEach { entry ->
+                Text("• $entry", style = MaterialTheme.typography.bodySmall)
+            }
+            OutlinedButton(onClick = {
+                scope.launch { app.settings.clearConversionHistory(); status = "Conversion history cleared." }
+            }, modifier = Modifier.padding(top = 4.dp)) { Text("Clear history") }
+        }
     }
 }

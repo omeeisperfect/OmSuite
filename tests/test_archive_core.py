@@ -161,5 +161,140 @@ class ArchiveExtraTest(unittest.TestCase):
         self.assertFalse((self.root / "evil").exists())
 
 
+class ArchiveCorrectionTest(unittest.TestCase):
+    """Correction pass (1 Nov 2026): empty dirs, encrypted entries,
+    non-ZIP refusal, nested archives, partial extraction, CRC safety.
+    Existing tests above are untouched."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_empty_dir_create_extract_roundtrip(self):
+        src = self.root / "pkg"
+        (src / "empty").mkdir(parents=True)
+        (src / "f.txt").write_text("F")
+        archive = ac.create(self.root / "pkg.zip", [src])
+        names = sorted(e["name"] for e in ac.browse(archive))
+        self.assertIn("pkg/empty/", names)
+        dest = self.root / "out"
+        ac.extract(archive, dest)
+        self.assertTrue((dest / "pkg" / "empty").is_dir())
+        self.assertEqual((dest / "pkg" / "f.txt").read_text(), "F")
+
+    def test_empty_source_dir_roundtrip(self):
+        src = self.root / "void"
+        src.mkdir()
+        archive = ac.create(self.root / "void.zip", [src])
+        dest = self.root / "out"
+        ac.extract(archive, dest)
+        self.assertTrue((dest / "void").is_dir())
+
+    def test_encrypted_entry_refused(self):
+        import struct
+        from errors import UnsupportedFormatError
+        p = self.root / "enc.zip"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr("secret.txt", b"data")
+        # writestr() resets flag_bits, so patch the flag into the local
+        # header (+6) and central directory (+8) byte-wise instead.
+        data = bytearray(p.read_bytes())
+        lh = data.find(b"PK\x03\x04")
+        cd = data.find(b"PK\x01\x02")
+        struct.pack_into("<H", data, lh + 6, 0x1)
+        struct.pack_into("<H", data, cd + 8, 0x1)
+        p.write_bytes(bytes(data))
+        self.assertRaises(UnsupportedFormatError, ac.browse, p)
+        self.assertRaises(UnsupportedFormatError, ac.extract, p,
+                          self.root / "d")
+        self.assertFalse((self.root / "d" / "secret.txt").exists())
+
+    def test_non_zip_formats_refused_clearly(self):
+        from errors import UnsupportedFormatError
+        rar = self.root / "x.rar"
+        rar.write_bytes(b"Rar!\x1a\x07\x00junk")
+        self.assertRaises(UnsupportedFormatError, ac.browse, rar)
+        src = self.root / "a.txt"
+        src.write_text("A")
+        self.assertRaises(UnsupportedFormatError, ac.create,
+                          self.root / "x.7z", [src])
+        self.assertRaises(UnsupportedFormatError, ac.create,
+                          self.root / "x.tar", [src])
+
+    def test_nested_zip_is_opaque_file(self):
+        inner = self.root / "inner.zip"
+        with zipfile.ZipFile(inner, "w") as zf:
+            zf.writestr("in.txt", b"IN")
+        outer = ac.create(self.root / "outer.zip", [inner])
+        dest = self.root / "out"
+        ac.extract(outer, dest)
+        # Extracted as a file, NOT expanded: no in.txt beside it.
+        self.assertTrue(zipfile.is_zipfile(dest / "inner.zip"))
+        self.assertFalse((dest / "in.txt").exists())
+
+    def test_partial_paths_on_conflict(self):
+        p = self.root / "c.zip"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr("a.txt", b"NEW-A")
+            zf.writestr("b.txt", b"NEW-B")
+        dest = self.root / "d"
+        dest.mkdir()
+        (dest / "b.txt").write_text("OLD")
+        with self.assertRaises(ConflictError) as ctx:
+            ac.extract(p, dest, policy="error")
+        self.assertEqual(ctx.exception.partial_paths, [dest / "a.txt"])
+        self.assertEqual((dest / "b.txt").read_text(), "OLD")
+
+    def test_crc_failure_preserves_overwrite_target(self):
+        from errors import MalformedInputError
+        p = self.root / "bad.zip"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr("v.txt", b"hello world")
+        data = bytearray(p.read_bytes())
+        i = data.find(b"hello")
+        data[i] ^= 0xFF
+        p.write_bytes(bytes(data))
+        dest = self.root / "d"
+        dest.mkdir()
+        (dest / "v.txt").write_text("ORIGINAL")
+        with self.assertRaises(MalformedInputError) as ctx:
+            ac.extract(p, dest, policy="overwrite")
+        self.assertEqual(ctx.exception.partial_paths, [])
+        self.assertEqual((dest / "v.txt").read_text(), "ORIGINAL")
+
+    def test_forged_small_header_refused_without_partial_file(self):
+        import struct
+        from errors import MalformedInputError, OversizedInputError
+        p = self.root / "forge.zip"
+        with zipfile.ZipFile(p, "w",
+                             compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("big.txt", b"x" * 100)
+        data = bytearray(p.read_bytes())
+        lh = data.find(b"PK\x03\x04")
+        struct.pack_into("<I", data, lh + 22, 5)  # local file_size
+        cd = data.find(b"PK\x01\x02")
+        struct.pack_into("<I", data, cd + 24, 5)  # central file_size
+        p.write_bytes(bytes(data))
+        # Header says 5 bytes, so the header check passes...
+        self.assertEqual(ac.browse(p, max_file=10)[0]["size"], 5)
+        # ...but extraction must still refuse (CRC and/or size guard).
+        with self.assertRaises((MalformedInputError, OversizedInputError)):
+            ac.extract(p, self.root / "d", max_file=10)
+        self.assertFalse((self.root / "d" / "big.txt").exists())
+
+    def test_selected_empty_dir_created(self):
+        p = self.root / "dirs.zip"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr(zipfile.ZipInfo("empty/"), b"")
+            zf.writestr("empty/keep.txt", b"K")
+        dest = self.root / "d"
+        ac.extract(p, dest, selected=["empty/"])
+        self.assertTrue((dest / "empty").is_dir())
+        self.assertFalse((dest / "empty" / "keep.txt").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

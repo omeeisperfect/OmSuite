@@ -301,8 +301,7 @@ function formatSize(bytes) {
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
-function formatDate(mtimeMs) {
-  const d = new Date(mtimeMs);
+function formatDate(mtimeMs) {  const d = new Date(mtimeMs);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleString();
 }
@@ -322,6 +321,87 @@ function breadcrumbs(dirPath) {
   return segments;
 }
 
+// Async copy with progress. Same never-overwrite naming as copyEntry:
+// a clash in the destination gets a " - Copy" name. onProgress, when
+// given, is called with { doneFiles, totalFiles, doneBytes, totalBytes,
+// current } after every file (and during a large single file, per chunk).
+// Symlinks are copied as symlinks; symlinked dirs are never followed.
+async function copyEntryAsync(src, destDir, onProgress) {
+  const fsp = require('node:fs/promises');
+  assertExistingDir(destDir);
+  if (!fs.existsSync(src)) throw new Error(`Source does not exist: ${src}`);
+  const base = path.basename(src);
+  const destName = fs.existsSync(path.join(destDir, base)) ? uniqueCopyName(destDir, base) : base;
+  const dest = path.join(destDir, destName);
+  // First pass: count files + bytes so progress has a real total.
+  let totalFiles = 0;
+  let totalBytes = 0;
+  const stack = [src];
+  const plan = []; // { src, dest, kind: 'dir'|'file'|'link' }
+  const srcStat = fs.lstatSync(src);
+  if (srcStat.isDirectory() && !srcStat.isSymbolicLink()) {
+    plan.push({ src, dest, kind: 'dir' });
+    stack.pop();
+    const walk = [src];
+    while (walk.length > 0) {
+      const dir = walk.pop();
+      const rel = path.relative(src, dir);
+      for (const name of fs.readdirSync(dir)) {
+        const full = path.join(dir, name);
+        const st = fs.lstatSync(full);
+        const target = path.join(dest, rel, name);
+        if (st.isDirectory() && !st.isSymbolicLink()) { plan.push({ src: full, dest: target, kind: 'dir' }); walk.push(full); }
+        else if (st.isSymbolicLink()) { plan.push({ src: full, dest: target, kind: 'link' }); totalFiles += 1; }
+        else if (st.isFile()) { plan.push({ src: full, dest: target, kind: 'file' }); totalFiles += 1; totalBytes += st.size; }
+      }
+    }
+  } else if (srcStat.isSymbolicLink()) {
+    plan.push({ src, dest, kind: 'link' });
+    totalFiles = 1;
+  } else {
+    plan.push({ src, dest, kind: 'file' });
+    totalFiles = 1;
+    totalBytes = srcStat.size;
+  }
+  const report = (doneFiles, doneBytes, current) => {
+    if (typeof onProgress === 'function') {
+      onProgress({ doneFiles, totalFiles, doneBytes, totalBytes, current });
+    }
+  };
+  let doneFiles = 0;
+  let doneBytes = 0;
+  report(0, 0, base);
+  for (const item of plan) {
+    if (item.kind === 'dir') {
+      fs.mkdirSync(item.dest, { recursive: true });
+    } else if (item.kind === 'link') {
+      fs.mkdirSync(path.dirname(item.dest), { recursive: true });
+      fs.symlinkSync(fs.readlinkSync(item.src), item.dest);
+      doneFiles += 1;
+      report(doneFiles, doneBytes, path.basename(item.src));
+    } else {
+      fs.mkdirSync(path.dirname(item.dest), { recursive: true });
+      const size = fs.statSync(item.src).size;
+      if (size === 0) {
+        await fsp.copyFile(item.src, item.dest);
+      } else {
+        await new Promise((resolve, reject) => {
+          const rs = fs.createReadStream(item.src);
+          const ws = fs.createWriteStream(item.dest);
+          rs.on('data', (chunk) => { doneBytes += chunk.length; report(doneFiles, doneBytes, path.basename(item.src)); });
+          rs.on('error', reject);
+          ws.on('error', reject);
+          ws.on('finish', resolve);
+          rs.pipe(ws);
+        });
+      }
+      doneFiles += 1;
+      report(doneFiles, doneBytes, path.basename(item.src));
+    }
+  }
+  return dest;
+}
+
 module.exports = {
   MAX_TEXT_BYTES,
   TEXT_EXTENSIONS,
@@ -335,6 +415,7 @@ module.exports = {
   uniqueCopyName,
   isInsideDir,
   copyEntry,
+  copyEntryAsync,
   duplicateEntry,
   moveEntry,
   deleteEntry,

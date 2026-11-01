@@ -92,6 +92,8 @@ fun FilesScreen(app: OmSuiteApp, onOpenEditor: (String, String) -> Unit) {
     var deleteTargets by remember { mutableStateOf<List<BrowserItem>?>(null) }
     var copyMoveTargets by remember { mutableStateOf<Pair<List<BrowserItem>, Boolean>?>(null) } // items, isMove
     var menuFor by remember { mutableStateOf<BrowserItem?>(null) }
+    var conflictDialog by remember { mutableStateOf<ConflictDialogState?>(null) }
+    val defaultFolderUri by app.settings.defaultFolderUri.collectAsState(initial = null)
 
     fun currentDir(): DocumentFile? {
         val root = rootUri?.let { app.files.rootFor(it) } ?: return null
@@ -107,6 +109,48 @@ fun FilesScreen(app: OmSuiteApp, onOpenEditor: (String, String) -> Unit) {
             } catch (e: Exception) {
                 error = "Could not list this folder: ${e.message}"
             }
+        }
+    }
+
+    /** Copy/move with an explicit conflict policy — never silently overwrites. */
+    suspend fun executeCopyMove(dest: DocumentFile, targets: List<BrowserItem>, isMove: Boolean, policy: ConflictPolicy) {
+        if (dest.uri == currentDir()?.uri) {
+            status = "That is the folder these items are already in — nothing was copied or moved."
+            return
+        }
+        var done = 0
+        var skipped = 0
+        var failed = 0
+        val destNames = app.files.childNames(dest).toMutableSet()
+        for (t in targets) {
+            val doc = DocumentFile.fromSingleUri(app, t.uri)
+            if (doc == null) { failed++; continue }
+            val conflict = t.name in destNames
+            if (conflict && policy == ConflictPolicy.SKIP) { skipped++; continue }
+            if (conflict && policy == ConflictPolicy.OVERWRITE) {
+                app.files.findChild(dest, t.name)?.delete()
+                destNames.remove(t.name)
+            }
+            val newName = if (conflict && policy == ConflictPolicy.KEEP_BOTH) {
+                FileUtils.uniqueName(destNames, t.name)
+            } else null
+            val ok = if (isMove) app.files.move(doc, dest, newName) else app.files.copy(doc, dest, newName)
+            if (ok) { done++; destNames.add(newName ?: t.name) } else failed++
+        }
+        status = "${if (isMove) "Moved" else "Copied"} $done item(s)" +
+            (if (skipped > 0) ", skipped $skipped existing" else "") +
+            (if (failed > 0) ", $failed failed" else "") + "."
+        selected.clear()
+        refresh()
+    }
+
+    // A default save location chosen in Settings opens automatically here
+    // (only when it is still a granted folder and no folder is open yet).
+    LaunchedEffect(granted, defaultFolderUri) {
+        if (rootUri == null && defaultFolderUri != null &&
+            granted.any { it.uri == defaultFolderUri }
+        ) {
+            rootUri = Uri.parse(defaultFolderUri)
         }
     }
 
@@ -152,13 +196,25 @@ fun FilesScreen(app: OmSuiteApp, onOpenEditor: (String, String) -> Unit) {
         if (granted.isNotEmpty()) {
             Text("Granted folders (tap to browse):", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
             granted.forEach { folder ->
-                Text(
-                    "📁 ${folder.name}",
-                    modifier = Modifier.clickable {
-                        rootUri = Uri.parse(folder.uri); pathSegments = emptyList(); selected.clear()
-                    }.padding(vertical = 2.dp),
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "📁 ${folder.name}",
+                        modifier = Modifier.weight(1f).clickable {
+                            rootUri = Uri.parse(folder.uri); pathSegments = emptyList(); selected.clear()
+                        }.padding(vertical = 2.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    TextButton(onClick = {
+                        scope.launch {
+                            app.db.folderDao().remove(folder.uri)
+                            app.files.releaseTreePermission(Uri.parse(folder.uri))
+                            if (rootUri.toString() == folder.uri) {
+                                rootUri = null; pathSegments = emptyList(); items = emptyList(); selected.clear()
+                            }
+                            status = "Removed granted folder ${folder.name} (files untouched)."
+                        }
+                    }) { Text("Remove") }
+                }
             }
         }
         if (rootUri == null) {
@@ -194,6 +250,10 @@ fun FilesScreen(app: OmSuiteApp, onOpenEditor: (String, String) -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(vertical = 4.dp)) {
             OutlinedButton(onClick = { showCreateFolder = true; newName = "" }) { Icon(Icons.Filled.CreateNewFolder, null); Text(" Folder") }
             OutlinedButton(onClick = { showCreateFile = true; newName = "note.txt" }) { Text("New file") }
+            TextButton(onClick = {
+                selected.clear()
+                selected.addAll(sorted.map { it.uri.toString() })
+            }) { Text("Select all") }
             DropdownMenuSort(sort) { sort = it }
         }
         if (selected.isNotEmpty()) {
@@ -350,17 +410,13 @@ fun FilesScreen(app: OmSuiteApp, onOpenEditor: (String, String) -> Unit) {
                                 scope.launch {
                                     val destRoot = app.files.rootFor(Uri.parse(folder.uri))
                                     if (destRoot != null) {
-                                        var failed = 0
-                                        for (t in targets) {
-                                            val doc = DocumentFile.fromSingleUri(app, t.uri)
-                                            val ok = if (doc != null) {
-                                                if (isMove) app.files.move(doc, destRoot) else app.files.copy(doc, destRoot)
-                                            } else false
-                                            if (!ok) failed++
+                                        val destNames = app.files.childNames(destRoot)
+                                        val conflicts = targets.map { it.name }.filter { it in destNames }
+                                        if (conflicts.isEmpty()) {
+                                            executeCopyMove(destRoot, targets, isMove, ConflictPolicy.OVERWRITE)
+                                        } else {
+                                            conflictDialog = ConflictDialogState(destRoot, targets, isMove, conflicts)
                                         }
-                                        status = if (failed == 0) "${if (isMove) "Moved" else "Copied"} ${targets.size} item(s) to ${folder.name}"
-                                        else "Completed with $failed failure(s)"
-                                        selected.clear(); refresh()
                                     } else error = "Could not open destination folder."
                                 }
                                 copyMoveTargets = null
@@ -374,6 +430,38 @@ fun FilesScreen(app: OmSuiteApp, onOpenEditor: (String, String) -> Unit) {
             confirmButton = { TextButton(onClick = { copyMoveTargets = null }) { Text("Close") } }
         )
     }
+    conflictDialog?.let { dialog ->
+        AlertDialog(
+            onDismissRequest = { conflictDialog = null },
+            title = { Text("Name already exists") },
+            text = {
+                Text(
+                    "${dialog.conflicts.size} item(s) already exist in the destination: " +
+                        dialog.conflicts.joinToString(", ") +
+                        ". Nothing has been overwritten yet — choose what to do."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val d = dialog; conflictDialog = null
+                    scope.launch { executeCopyMove(d.dest, d.targets, d.isMove, ConflictPolicy.KEEP_BOTH) }
+                }) { Text("Keep both") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        val d = dialog; conflictDialog = null
+                        scope.launch { executeCopyMove(d.dest, d.targets, d.isMove, ConflictPolicy.SKIP) }
+                    }) { Text("Skip existing") }
+                    TextButton(onClick = { conflictDialog = null }) { Text("Cancel") }
+                    TextButton(onClick = {
+                        val d = dialog; conflictDialog = null
+                        scope.launch { executeCopyMove(d.dest, d.targets, d.isMove, ConflictPolicy.OVERWRITE) }
+                    }) { Text("Overwrite") }
+                }
+            }
+        )
+    }
     menuFor?.let { item ->
         DropdownMenu(expanded = true, onDismissRequest = { menuFor = null }) {
             DropdownMenuItem(text = { Text("Properties") }, onClick = { propsTarget = item; menuFor = null })
@@ -383,7 +471,8 @@ fun FilesScreen(app: OmSuiteApp, onOpenEditor: (String, String) -> Unit) {
                 scope.launch {
                     val dir = currentDir(); val doc = DocumentFile.fromSingleUri(app, item.uri)
                     if (dir != null && doc != null) {
-                        val ok = app.files.copy(doc, dir, "Copy of ${item.name}")
+                        val newName = FileUtils.uniqueName(items.map { it.name }.toSet(), "Copy of ${item.name}")
+                        val ok = app.files.copy(doc, dir, newName)
                         status = if (ok) "Duplicated ${item.name}" else "Duplicate failed"
                         refresh()
                     }
@@ -439,7 +528,10 @@ private fun FileRow(
             Column(Modifier.weight(1f).padding(start = 8.dp)) {
                 Text(item.name, style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    if (item.isDir) "Folder" else "${FileUtils.formatSize(item.size)} • ${FileUtils.extension(item.name).ifBlank { "file" }}",
+                    if (item.isDir) "Folder" else {
+                        "${FileUtils.formatSize(item.size)} • ${FileUtils.extension(item.name).ifBlank { "file" }}" +
+                            if (item.modified > 0) " • ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(item.modified))}" else ""
+                    },
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -449,3 +541,12 @@ private fun FileRow(
     }
 }
 
+
+private enum class ConflictPolicy { OVERWRITE, KEEP_BOTH, SKIP }
+
+private data class ConflictDialogState(
+    val dest: DocumentFile,
+    val targets: List<BrowserItem>,
+    val isMove: Boolean,
+    val conflicts: List<String>
+)

@@ -88,7 +88,6 @@ fun HomeScreen(
         }
         item {
             Text("Favourites", style = MaterialTheme.typography.titleMedium)
-            Text("Favourites", style = MaterialTheme.typography.titleMedium)
         }
         if (favourites.isEmpty()) {
             item { Text("No favourites yet. Star a file in Files to pin it here.", style = MaterialTheme.typography.bodySmall) }

@@ -106,5 +106,118 @@ class EpubTest(unittest.TestCase):
                           _build_epub(self.root / "empty.epub", opf=opf))
 
 
+class EpubCorrectionTest(unittest.TestCase):
+    """Correction pass (1 Nov 2026): TOC (nav + NCX), bookmarks,
+    progress, search, encryption/MOBI refusal. Existing tests untouched."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, name, opf_manifest, spine, files, container=CONTAINER):
+        opf = ("<?xml version=\"1.0\"?><package xmlns="
+               "\"http://www.idpf.org/2007/opf\" version=\"3.0\">"
+               "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+               "<dc:title>B</dc:title></metadata>"
+               f"<manifest>{opf_manifest}</manifest>"
+               f"<spine>{spine}</spine></package>")
+        p = self.root / name
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr("META-INF/container.xml", container)
+            zf.writestr("OEBPS/content.opf", opf)
+            for arc, data in files.items():
+                zf.writestr(arc, data)
+        return p
+
+    def _book_with_nav(self):
+        nav = ("<html xmlns=\"http://www.w3.org/1999/xhtml\" "
+               "xmlns:epub=\"http://www.idpf.org/2007/ops\"><body>"
+               "<nav epub:type=\"toc\"><ol>"
+               "<li><a href=\"ch1.xhtml#s1\">Chapter One</a><ol>"
+               "<li><a href=\"ch1.xhtml#s2\">Section Two</a></li></ol></li>"
+               "<li><a href=\"ch2.xhtml\">Chapter Two</a></li>"
+               "</ol></nav></body></html>")
+        manifest = ('<item id="ch1" href="ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                    '<item id="ch2" href="ch2.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                    '<item id="nav" href="nav.xhtml" '
+                    'media-type="application/xhtml+xml" properties="nav"/>')
+        return self._build("nav.epub", manifest,
+                           '<itemref idref="ch1"/><itemref idref="ch2"/>',
+                           {"OEBPS/ch1.xhtml": CH1, "OEBPS/ch2.xhtml": CH2,
+                            "OEBPS/nav.xhtml": nav})
+
+    def test_nav_toc_levels_and_fragments(self):
+        book = ec.load_epub(self._book_with_nav())
+        self.assertEqual([(e.title, e.href, e.fragment, e.level)
+                          for e in book.toc],
+                         [("Chapter One", "OEBPS/ch1.xhtml", "s1", 1),
+                          ("Section Two", "OEBPS/ch1.xhtml", "s2", 2),
+                          ("Chapter Two", "OEBPS/ch2.xhtml", "", 1)])
+
+    def test_ncx_fallback_when_no_nav(self):
+        ncx = ("<?xml version=\"1.0\"?><ncx xmlns="
+               "\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\">"
+               "<navMap><navPoint id=\"n1\"><navLabel><text>Start</text>"
+               "</navLabel><content src=\"ch1.xhtml\"/>"
+               "<navPoint id=\"n2\"><navLabel><text>Deep</text></navLabel>"
+               "<content src=\"ch2.xhtml#part\"/></navPoint></navPoint>"
+               "</navMap></ncx>")
+        manifest = ('<item id="ch1" href="ch1.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                    '<item id="ch2" href="ch2.xhtml" '
+                    'media-type="application/xhtml+xml"/>'
+                    '<item id="ncx" href="toc.ncx" '
+                    'media-type="application/x-dtbncx+xml"/>')
+        book = ec.load_epub(self._build(
+            "ncx.epub", manifest,
+            '<itemref idref="ch1"/><itemref idref="ch2"/>',
+            {"OEBPS/ch1.xhtml": CH1, "OEBPS/ch2.xhtml": CH2,
+             "OEBPS/toc.ncx": ncx}))
+        self.assertEqual([(e.title, e.href, e.fragment, e.level)
+                          for e in book.toc],
+                         [("Start", "OEBPS/ch1.xhtml", "", 1),
+                          ("Deep", "OEBPS/ch2.xhtml", "part", 2)])
+
+    def test_no_toc_is_empty_not_error(self):
+        book = ec.load_epub(_build_epub(self.root / "plain.epub"))
+        self.assertEqual(book.toc, [])
+
+    def test_encrypted_and_mobi_refused(self):
+        from errors import UnsupportedFormatError
+        p = self.root / "enc.epub"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr("META-INF/container.xml", CONTAINER)
+            zf.writestr("META-INF/encryption.xml", "<enc/>")
+        self.assertRaises(UnsupportedFormatError, ec.load_epub, p)
+        mobi = self.root / "book.mobi"
+        mobi.write_bytes(b"not an epub")
+        self.assertRaises(UnsupportedFormatError, ec.load_epub, mobi)
+
+    def test_search_progress_and_bookmark(self):
+        book = ec.load_epub(self._book_with_nav())
+        hits = ec.search_epub(book, "world")
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0].chapter_id, "ch1")
+        self.assertIn("world", hits[0].snippet)
+        self.assertEqual(ec.search_epub(book, ""), [])
+        self.assertEqual(ec.search_epub(book, "WORLD"), hits)  # insensitive
+        self.assertEqual(ec.search_epub(book, "WORLD", case_sensitive=True),
+                         [])
+        total = len(book.full_text())
+        self.assertGreater(total, 0)
+        self.assertEqual(ec.book_progress(book, 1, 99), 1.0)  # clamped end
+        self.assertEqual(ec.book_progress(book, 0, 0), 0.0)
+        mid = ec.book_progress(book, 0, 1)
+        self.assertTrue(0.0 < mid < 1.0)
+        bookmark = ec.Bookmark(chapter_index=1, paragraph_index=2,
+                               note="here")
+        self.assertEqual(ec.Bookmark.from_dict(bookmark.to_dict()), bookmark)
+
+
 if __name__ == "__main__":
     unittest.main()

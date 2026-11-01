@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(app: OmSuiteApp) {
     val scope = rememberCoroutineScope()
     val theme by app.settings.theme.collectAsState(initial = ThemeChoice.SYSTEM)
+    val favourites by app.db.favouriteDao().observeAll().collectAsState(initial = emptyList())
     val defaultName by app.settings.defaultFolderName.collectAsState(initial = null)
     var status by remember { mutableStateOf<String?>(null) }
     var confirmClearRecents by remember { mutableStateOf(false) }
@@ -55,6 +56,10 @@ fun SettingsScreen(app: OmSuiteApp) {
         Text("Settings", style = androidx.compose.material3.MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(16.dp))
         Text("Appearance", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+        Text(
+            "The theme applies to the whole app immediately (MainActivity reads this setting on every composition).",
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+        )
         ThemeChoice.values().forEach { choice ->
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 RadioButton(selected = theme == choice, onClick = { scope.launch { app.settings.setTheme(choice) } })
@@ -76,6 +81,13 @@ fun SettingsScreen(app: OmSuiteApp) {
         Spacer(Modifier.height(16.dp))
         Text("History & storage", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
         Button(onClick = { confirmClearRecents = true }) { Text("Clear recent files") }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = {
+            scope.launch {
+                favourites.forEach { app.db.favouriteDao().remove(it.uri) }
+                status = "Favourites cleared."
+            }
+        }) { Text("Clear favourites") }
         Spacer(Modifier.height(8.dp))
         Button(onClick = {
             scope.launch {
@@ -105,8 +117,17 @@ fun SettingsScreen(app: OmSuiteApp) {
                 Text("OmSuite for Android — version 0.1.0-debug (debug build, not a release).", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
                 Text("Project licence: not yet selected (no licence file is shipped).", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
                 Text(
-                    "Implemented here: File Manager, Text/Code Editor, Settings. " +
-                        "Not implemented: Sheets, Slides, PDF Studio, Media, E-books, Archives, Converter, Scan & OCR.",
+                    "Implemented here: all 12 modules — File Manager, Writer/Editor (incl. code highlight, line numbers, JSON tools, Markdown preview), " +
+                        "Sheets (multi-sheet, formulas incl. MIN/MAX/COUNT, in-cell errors, sort/filter, freeze header), Slides (duplicate, speaker notes, HTML export with embedded images), " +
+                        "PDF Studio (thumbnails, search, zoom, view rotation, page-as-PNG), Media (image zoom/rotate, audio queue + speed, video seek/fullscreen), " +
+                        "E-books (contents, bookmarks, saved position, text size, themes, search), Archives (browse, extract all/selected, conflicts), " +
+                        "Converter (verified pairs only, local history), Scan & OCR (multi-page crop/rotate/reorder, TXT + image-PDF export), Settings.",
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "Honest limits: PDF merge/split/page-delete/rotate-in-file are disabled (no PDF library vendored); " +
+                        "video subtitle track selection is unavailable (VideoView exposes none); EPUB chapters are plain text only (no images/styles/DRM); " +
+                        "Sheets charts, MOBI/AZW books, RAR/7Z/TAR archives and image/PDF conversion beyond the listed pairs are not offered.",
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
                 )
             }

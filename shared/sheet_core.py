@@ -29,6 +29,21 @@ Fidelity notes (honest limits, apps must not claim more):
   and empty cells are ignored (spreadsheet convention). String literals
   in formulas (``="hi"``) are NOT supported. Dates, percentages,
   ``IF``/``VLOOKUP`` and every other function are NOT supported.
+- Formula errors NEVER crash a caller that uses the value APIs:
+  ``recalculate()`` reports them per cell in ``errors``,
+  ``value_or_error()`` returns ``(error_value, message)`` and
+  ``display_values()`` substitutes spreadsheet-style error values
+  (``#DIV/0!``, ``#VALUE!``, ``#REF!``, ``#CYCLE!``) for broken cells.
+  A reference outside the grid (``A0``, ``XFE1``, ``A1048577``) is a
+  ``#REF!`` error, never a silent 0. ``value()`` still raises for
+  callers that want exceptions — that is the caller's choice, not a
+  crash path for the sheet as a whole.
+- Multiple sheets: ``Workbook`` holds several named ``Sheet`` objects
+  in memory. CSV and XLSX functions still operate on ONE sheet (see
+  below); the workbook does not upgrade XLSX to multi-sheet.
+- ``sort_rows`` / ``filter_rows`` operate on a rectangular range by
+  computed values; rows with formula errors sort last and never match
+  a filter except when the test itself inspects the ``#...!`` value.
 
 Errors use ``errors.py`` codes; circular references use code ``CYCLE``.
 No network, no account, no side effects beyond the file functions.
@@ -44,7 +59,8 @@ from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
 
-from errors import MalformedInputError, NotFoundError, OmSuiteError, wrap_os_error
+from errors import (AlreadyExistsError, MalformedInputError, NotFoundError,
+                    OmSuiteError, wrap_os_error)
 
 MAX_COL = 16384  # XFD, as in common spreadsheets
 MAX_ROW = 1048576
@@ -63,6 +79,26 @@ class CycleError(FormulaError):
     """A circular reference (A1 -> B1 -> A1, or a self-reference)."""
 
     code = "CYCLE"
+
+
+# Spreadsheet-style error values (what a cell DISPLAYS when its formula
+# is broken). These are values, not exceptions: see Sheet.display_values.
+ERROR_DIV0 = "#DIV/0!"
+ERROR_VALUE = "#VALUE!"
+ERROR_REF = "#REF!"
+ERROR_CYCLE = "#CYCLE!"
+
+
+def error_display(exc: Exception) -> str:
+    """Map a formula failure to its display error value."""
+    if isinstance(exc, CycleError):
+        return ERROR_CYCLE
+    msg = str(exc)
+    if "Division by zero" in msg:
+        return ERROR_DIV0
+    if "Invalid cell reference" in msg or "out of range" in msg:
+        return ERROR_REF
+    return ERROR_VALUE
 
 
 # ------------------------------------------------------------- addressing ----
@@ -323,10 +359,20 @@ class _Evaluator:
         return value
 
     def ref_value(self, ref: str) -> Any:
+        # A reference outside the grid must be a #REF! error, never a
+        # silent 0: cell_value() alone would look up the (absent) key
+        # and return 0 for "XFE1" / "A0" / "A1048577" alike.
+        try:
+            parse_cell(ref)
+        except MalformedInputError as exc:
+            raise FormulaError(f"Invalid cell reference: {ref!r}") from exc
         return self.cell_value(ref)
 
     def range_values(self, text: str) -> list[float]:
-        r1, c1, r2, c2 = parse_range(text)
+        try:
+            r1, c1, r2, c2 = parse_range(text)
+        except MalformedInputError as exc:
+            raise FormulaError(str(exc)) from exc
         values: list[float] = []
         for row in range(r1, r2 + 1):
             for col in range(c1, c2 + 1):
@@ -382,9 +428,43 @@ class Sheet:
 
     def value(self, ref: str) -> Any:
         """Computed value of one cell; raises FormulaError / CycleError
-        for bad formulas. Non-formula cells return their raw value."""
+        for bad formulas. Non-formula cells return their raw value.
+        Callers that must not raise should use ``value_or_error``."""
         row, col = parse_cell(ref)
         return _Evaluator(self).cell_value(cell_ref(row, col))
+
+    def value_or_error(self, ref: str) -> tuple[Any, str | None]:
+        """Computed value of one cell, never raising for a bad formula:
+        returns ``(value, None)`` on success or ``(error_value, message)``
+        where ``error_value`` is one of ``#DIV/0!`` / ``#VALUE!`` /
+        ``#REF!`` / ``#CYCLE!``. A syntactically invalid reference
+        (``"nope"``) is a ``#REF!`` error here, not an exception."""
+        try:
+            row, col = parse_cell(ref)
+        except MalformedInputError as exc:
+            return ERROR_REF, str(exc)
+        try:
+            return _Evaluator(self).cell_value(cell_ref(row, col)), None
+        except (FormulaError, CycleError) as exc:
+            return error_display(exc), str(exc)
+
+    def display_values(self) -> dict[str, Any]:
+        """Every stored cell's display value: computed values for healthy
+        cells, error values (``#DIV/0!`` etc.) for broken formulas.
+        This is what a grid UI should render; ``recalculate`` stays the
+        API for callers that need the error messages too."""
+        values, errors = self.recalculate()
+        out = dict(values)
+        for ref, message in errors.items():
+            if message.startswith("Circular"):
+                out[ref] = ERROR_CYCLE
+            elif "Division by zero" in message:
+                out[ref] = ERROR_DIV0
+            elif "Invalid cell reference" in message:
+                out[ref] = ERROR_REF
+            else:
+                out[ref] = ERROR_VALUE
+        return out
 
     def recalculate(self) -> tuple[dict[str, Any], dict[str, str]]:
         """Compute every cell. Returns ``(values, errors)``: ``values``
@@ -410,6 +490,166 @@ class Sheet:
 
     def __len__(self) -> int:
         return len(self.cells)
+
+
+# -------------------------------------------------------------- workbook ----
+
+class Workbook:
+    """Several named sheets in memory (Master Instructions §3.3:
+    "multiple sheets"). This is in-memory only: CSV and XLSX helpers
+    still operate on a single ``Sheet`` — exporting a workbook to XLSX
+    does NOT magically become multi-sheet (that scope is documented as
+    single-sheet in the module docstring). Apps export one sheet at a
+    time, or join sheets themselves.
+    """
+
+    def __init__(self) -> None:
+        self.sheets: dict[str, Sheet] = {}
+        self.active: str | None = None
+
+    @property
+    def sheet_names(self) -> list[str]:
+        return list(self.sheets)
+
+    def add_sheet(self, name: str) -> Sheet:
+        if not name or any(ch in name for ch in "[]:*?/\\"):
+            raise MalformedInputError(f"Invalid sheet name: {name!r}")
+        if name in self.sheets:
+            raise AlreadyExistsError(f"Sheet already exists: {name!r}")
+        sheet = Sheet()
+        self.sheets[name] = sheet
+        if self.active is None:
+            self.active = name
+        return sheet
+
+    def sheet(self, name: str) -> Sheet:
+        try:
+            return self.sheets[name]
+        except KeyError as exc:
+            raise NotFoundError(f"No such sheet: {name!r}") from exc
+
+    def active_sheet(self) -> Sheet:
+        if self.active is None:
+            raise NotFoundError("Workbook has no sheets")
+        return self.sheets[self.active]
+
+    def remove_sheet(self, name: str) -> None:
+        if name not in self.sheets:
+            raise NotFoundError(f"No such sheet: {name!r}")
+        del self.sheets[name]
+        if self.active == name:
+            self.active = next(iter(self.sheets), None)
+
+    def rename_sheet(self, old: str, new: str) -> None:
+        if old not in self.sheets:
+            raise NotFoundError(f"No such sheet: {old!r}")
+        if not new or any(ch in new for ch in "[]:*?/\\"):
+            raise MalformedInputError(f"Invalid sheet name: {new!r}")
+        if new in self.sheets:
+            raise AlreadyExistsError(f"Sheet already exists: {new!r}")
+        self.sheets = {new if k == old else k: v
+                       for k, v in self.sheets.items()}
+        if self.active == old:
+            self.active = new
+
+    def __len__(self) -> int:
+        return len(self.sheets)
+
+
+# ---------------------------------------------------------- sort / filter ----
+
+def _row_display_values(sheet: Sheet, evaluator: _Evaluator,
+                        row: int, c1: int, c2: int) -> dict[str, Any]:
+    """Computed display values for one row of a range, keyed by column
+    letter. Empty cells are None; broken formulas are ``#...!`` strings
+    (so a filter can see, but not crash on, a broken cell)."""
+    out: dict[str, Any] = {}
+    for col in range(c1, c2 + 1):
+        ref = cell_ref(row, col)
+        raw = sheet.cells.get(ref)
+        if raw is None:
+            out[index_to_col(col)] = None
+        elif isinstance(raw, str) and raw.startswith("="):
+            try:
+                out[index_to_col(col)] = evaluator.cell_value(ref)
+            except (FormulaError, CycleError) as exc:
+                out[index_to_col(col)] = error_display(exc)
+        else:
+            out[index_to_col(col)] = raw
+    return out
+
+
+def _sort_key(value: Any) -> tuple[int, Any]:
+    """Numbers sort before text; booleans, errors and empties sort last
+    (an empty cell has no value to order by)."""
+    if value is None or isinstance(value, bool):
+        return (2, "")
+    if isinstance(value, (int, float)):
+        return (0, value)
+    return (1, str(value))
+
+
+def sort_rows(sheet: Sheet, range_text: str, *, key_col: str | int,
+              descending: bool = False, header: bool = False) -> list[int]:
+    """Sort the rows of ``range_text`` IN PLACE by the computed value of
+    ``key_col`` (a column letter, or a 1-based column index, which must
+    lie inside the range). With ``header=True`` the first row is a header
+    and stays put. Returns the new row order (row numbers, header first
+    when present). Formula errors and empty key cells always sort last,
+    ascending or descending — they never jump to the top on a reverse
+    sort. Raw cell contents move with their row; formulas move as text
+    (their references are NOT rewritten — a moved ``=A1`` still points
+    at ``A1``, as in a plain row move, not a spreadsheet-aware sort).
+    """
+    r1, c1, r2, c2 = parse_range(range_text)
+    key_index = col_to_index(key_col) if isinstance(key_col, str) else key_col
+    if key_index < c1 or key_index > c2:
+        raise MalformedInputError(
+            f"Sort key column {key_col!r} is outside range {range_text!r}")
+    rows = list(range(r1, r2 + 1))
+    fixed = [rows[0]] if header and rows else []
+    sortable = rows[1:] if header and rows else rows
+    evaluator = _Evaluator(sheet)
+    key_letter = index_to_col(key_index)
+    keyed = []
+    for row in sortable:
+        vals = _row_display_values(sheet, evaluator, row, c1, c2)
+        keyed.append((row, _sort_key(vals[key_letter])))
+    keyed.sort(key=lambda item: item[1])
+    ordered = [row for row, _ in keyed]
+    if descending:
+        # Reverse only the rows that HAVE a sortable value; empties /
+        # errors (sort category 2) stay at the bottom.
+        valued = [row for row, key in keyed if key[0] != 2]
+        tail = [row for row, key in keyed if key[0] == 2]
+        ordered = list(reversed(valued)) + tail
+    new_order = fixed + ordered
+    # Snapshot raw cells, clear the rows, write back in the new order.
+    snapshot: dict[int, dict[int, Any]] = {}
+    for row in rows:
+        snapshot[row] = {col: sheet.cells[cell_ref(row, col)]
+                         for col in range(c1, c2 + 1)
+                         if cell_ref(row, col) in sheet.cells}
+    for row in rows:
+        for col in range(c1, c2 + 1):
+            sheet.cells.pop(cell_ref(row, col), None)
+    for new_row, old_row in zip(rows, new_order):
+        for col, raw in snapshot[old_row].items():
+            sheet.cells[cell_ref(new_row, col)] = raw
+    return new_order
+
+
+def filter_rows(sheet: Sheet, range_text: str, test) -> list[int]:
+    """Return the row numbers of ``range_text`` for which
+    ``test(row_values)`` is True. ``row_values`` maps column letters to
+    computed display values (empty -> None, broken formula -> ``#...!``
+    string, everything else raw). A test that raises propagates — that
+    is the caller's bug, not a sheet error.
+    """
+    r1, c1, r2, c2 = parse_range(range_text)
+    evaluator = _Evaluator(sheet)
+    return [row for row in range(r1, r2 + 1)
+            if test(_row_display_values(sheet, evaluator, row, c1, c2))]
 
 
 # ------------------------------------------------------------------ CSV ----

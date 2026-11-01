@@ -85,6 +85,7 @@
       <div id="file-area" tabindex="0">
         <div id="file-list"></div>
       </div>
+      <div id="copy-progress" class="hidden"><progress id="copy-bar" max="100" value="0"></progress><span id="copy-progress-text"></span></div>
       <div id="file-status" class="statusbar"></div>
       <p class="hint">Tip: Ctrl+click / Shift+click to multi-select. Right-click for more actions. Drag files from your PC into this folder to copy them here. Drag a row onto a folder row to move it.</p>
     </section>
@@ -98,12 +99,17 @@
         <button id="ed-save-as">Save as…</button>
         <button id="ed-undo">↩ Undo</button>
         <button id="ed-redo">↪ Redo</button>
+        <button id="ed-bold" title="Bold the selected text (Markdown **text**)">B Bold</button>
+        <button id="ed-italic" title="Italicise the selected text (Markdown *text*)">I Italic</button>
+        <button id="ed-heading" title="Make the current line a heading (# …)">H Heading</button>
+        <button id="ed-list" title="Turn selected lines into a bulleted list">• List</button>
+        <button id="ed-numlist" title="Turn selected lines into a numbered list">1. List</button>
         <button id="ed-find-toggle">🔍 Find</button>
         <button id="ed-validate">✓ Validate JSON</button>
         <button id="ed-format-json">Format JSON</button>
         <button id="ed-preview-toggle">👁 Preview</button>
       </div>
-      <div id="ed-pathbar"><span id="ed-path">Untitled — not saved yet</span><span id="ed-dirty"></span></div>
+      <div id="ed-pathbar"><span id="ed-path">Untitled — not saved yet</span><span id="ed-dirty"></span><span id="ed-draft-note" class="muted"></span></div>
       <div id="ed-findbar" class="toolbar hidden">
         <input id="find-input" type="text" placeholder="Find…">
         <label><input id="find-case" type="checkbox"> Match case</label>
@@ -129,11 +135,38 @@
         <button id="sh-new">New sheet</button>
         <button id="sh-open">Open CSV…</button>
         <button id="sh-save">💾 Save CSV…</button>
+        <button id="sh-save-book">💾 Save workbook…</button>
+        <button id="sh-open-book">Open workbook…</button>
         <button id="sh-add-row">＋ Row</button>
         <button id="sh-add-col">＋ Column</button>
         <span id="sh-status" class="statusbar"></span>
       </div>
-      <p class="hint">Formulas start with <code>=</code> and support + − * / ( ) , cell refs like A1, and SUM / AVERAGE over ranges (e.g. <code>=SUM(A1:B3)</code>). Errors show as #DIV/0!, #REF!, #CIRC! or #VALUE!. Edit a cell, then click elsewhere to recalculate.</p>
+      <div id="sh-tabs" class="toolbar"></div>
+      <div class="toolbar">
+        <span id="sh-cellref" class="muted">A1</span>
+        <input id="sh-formula" type="text" placeholder="Formula bar — shows the selected cell's raw content; press Enter to commit" spellcheck="false" style="flex:1">
+        <label>Format
+          <select id="sh-format">
+            <option value="general">General</option>
+            <option value="number">Number (2 dp)</option>
+            <option value="currency">Currency ($)</option>
+            <option value="percent">Percent</option>
+            <option value="date">Date</option>
+          </select>
+        </label>
+        <label><input id="sh-freeze" type="checkbox"> Freeze first row &amp; column</label>
+      </div>
+      <div class="toolbar">
+        <label>Sort by column
+          <select id="sh-sort-col"></select>
+        </label>
+        <button id="sh-sort-asc">Sort ↑</button>
+        <button id="sh-sort-desc">Sort ↓</button>
+        <label><input id="sh-header-row" type="checkbox" checked> First row is a header (kept on sort)</label>
+        <input id="sh-filter" type="search" placeholder="Filter rows…">
+        <button id="sh-clear-filter">Clear filter</button>
+      </div>
+      <p class="hint">Formulas start with <code>=</code> and support + − * / ( ) , cell refs like A1, and SUM / AVERAGE / MIN / MAX / COUNT over ranges or values (e.g. <code>=SUM(A1:B3)</code>). Errors show as #DIV/0!, #REF!, #CIRC! or #VALUE!. Drag a column header's right edge to resize it. CSV only: XLSX is not offered (no spreadsheet library is vendored; a workbook saves as JSON with all sheets + formats).</p>
       <div id="sh-grid-wrap"><table id="sh-grid"></table></div>
     </section>
 
@@ -142,17 +175,21 @@
       <h2>Slides</h2>
       <div class="toolbar">
         <button id="sl-add">＋ Add slide</button>
+        <button id="sl-duplicate">Duplicate slide</button>
         <button id="sl-delete">Delete slide</button>
         <button id="sl-up">↑ Move up</button>
         <button id="sl-down">↓ Move down</button>
         <button id="sl-present">▶ Present fullscreen</button>
         <button id="sl-export">Export HTML…</button>
+        <button id="sl-save-deck">💾 Save deck…</button>
+        <button id="sl-open-deck">Open deck…</button>
       </div>
       <div class="row2">
         <div id="sl-list"></div>
         <div id="sl-edit">
           <label>Title<input id="sl-title" type="text" placeholder="Slide title"></label>
           <label>Body<textarea id="sl-body" placeholder="Slide body text…"></textarea></label>
+          <label>Speaker notes (shown to the presenter only, not in the export)<textarea id="sl-notes" placeholder="Notes for this slide…"></textarea></label>
           <div class="toolbar">
             <button id="sl-pick-image">🖼️ Pick image…</button>
             <button id="sl-clear-image">Remove image</button>
@@ -163,6 +200,7 @@
       </div>
       <div id="sl-present-overlay" class="hidden">
         <div id="sl-present-slide"></div>
+        <div id="sl-present-notes" class="hint"></div>
         <div class="toolbar"><button id="sl-prev">← Prev</button><span id="sl-present-pos"></span><button id="sl-next">Next →</button><button id="sl-exit">✕ Exit</button></div>
         <p class="hint">Tip: use ← / → keys, Esc to exit.</p>
       </div>
@@ -174,11 +212,22 @@
       <div class="toolbar">
         <button id="pdf-open">Open PDF…</button>
         <button id="pdf-open-system">Open in system viewer</button>
+        <input id="pdf-search" type="search" placeholder="Search extracted text…">
+        <button id="pdf-search-prev">↑ Prev</button>
+        <button id="pdf-search-next">↓ Next</button>
+        <span id="pdf-search-count" class="muted"></span>
+        <button id="pdf-zoom-out">Zoom −</button>
+        <button id="pdf-zoom-in">Zoom ＋</button>
+        <button id="pdf-zoom-reset">100%</button>
+        <button id="pdf-rotate">⟳ Rotate view</button>
+        <button id="pdf-extract" disabled title="Not implemented: rewriting PDF pages needs a PDF library, and none is vendored">Extract pages (not implemented)</button>
+        <button id="pdf-rotate-pages" disabled title="Not implemented: rewriting PDF pages needs a PDF library, and none is vendored">Rotate pages in file (not implemented)</button>
+        <button id="pdf-delete-pages" disabled title="Not implemented: rewriting PDF pages needs a PDF library, and none is vendored">Delete pages (not implemented)</button>
         <button id="pdf-merge" disabled title="Not implemented: no PDF library is vendored, so pages cannot be rewritten">Merge PDFs (not implemented)</button>
         <button id="pdf-split" disabled title="Not implemented: no PDF library is vendored, so pages cannot be rewritten">Split PDF (not implemented)</button>
       </div>
       <p id="pdf-info" class="muted">No PDF opened yet.</p>
-      <p class="hint">Merge / Split are disabled: rewriting PDF pages needs a PDF library, and none is vendored in this local-only app. Info + text extraction below are real, best-effort results.</p>
+      <p class="hint">Page navigation, bookmarks and the viewer's own search live in the embedded viewer toolbar above the document. The search box here searches the extracted text below. Zoom / Rotate view only change how the document is shown — they do not modify the file. Merge / Split / Extract / Rotate-pages / Delete-pages are disabled: rewriting PDF pages needs a PDF library, and none is vendored in this local-only app. Info + text extraction below are real, best-effort results.</p>
       <embed id="pdf-embed" type="application/pdf" class="hidden">
       <h3>Extracted text (best-effort)</h3>
       <pre id="pdf-text" class="pre-box"></pre>
@@ -191,8 +240,26 @@
         <button id="md-open-image">🖼️ Open image…</button>
         <button id="md-open-audio">🎵 Open audio…</button>
         <button id="md-open-video">🎬 Open video…</button>
+        <button id="md-zoom-out" title="Image zoom">Zoom −</button>
+        <button id="md-zoom-in" title="Image zoom">Zoom ＋</button>
+        <button id="md-rotate" title="Rotate the image view">⟳ Rotate</button>
+        <button id="md-back10" title="Seek back 10 seconds">⏪ 10s</button>
+        <button id="md-fwd10" title="Seek forward 10 seconds">10s ⏩</button>
+        <label>Speed
+          <select id="md-speed">
+            <option value="0.5">0.5×</option>
+            <option value="0.75">0.75×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.25">1.25×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+        <button id="md-prev" title="Previous item in the queue">⏮ Prev</button>
+        <button id="md-next" title="Next item in the queue">Next ⏭</button>
       </div>
       <p id="md-info" class="muted">No media opened yet. Files are played locally; nothing is uploaded.</p>
+      <div id="md-queue"></div>
       <img id="md-img" class="hidden media-el" alt="Picked image">
       <audio id="md-audio" class="hidden media-el" controls></audio>
       <video id="md-video" class="hidden media-el" controls></video>
@@ -206,8 +273,24 @@
         <button id="eb-open-txt">📄 Open TXT…</button>
         <button id="eb-prev">← Prev chapter</button>
         <button id="eb-next">Next chapter →</button>
+        <input id="eb-search" type="search" placeholder="Search this book…">
+        <button id="eb-search-go">Find</button>
+        <span id="eb-search-result" class="muted"></span>
+        <button id="eb-font-smaller" title="Smaller text">A−</button>
+        <button id="eb-font-bigger" title="Larger text">A＋</button>
+        <label>Theme
+          <select id="eb-theme">
+            <option value="default">Default</option>
+            <option value="sepia">Sepia</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+        <button id="eb-bookmark">🔖 Bookmark this chapter</button>
       </div>
       <p id="eb-meta" class="muted">No book opened yet.</p>
+      <p class="hint">EPUB chapters are shown as plain text only — images, styles and DRM-protected content are not rendered. Reading progress and bookmarks are saved on this PC and restored when you reopen the same book.</p>
+      <div id="eb-toc"></div>
+      <div id="eb-bookmarks"></div>
       <div id="eb-chapters"></div>
       <pre id="eb-text" class="pre-box"></pre>
     </section>
@@ -219,7 +302,8 @@
         <button id="ar-pick">Pick files…</button>
         <button id="ar-create">Create ZIP…</button>
         <button id="ar-open-zip">Open ZIP…</button>
-        <button id="ar-extract">Extract to folder…</button>
+        <button id="ar-extract">Extract all to folder…</button>
+        <button id="ar-extract-selected">Extract selected to folder…</button>
       </div>
       <p id="ar-info" class="muted">No archive opened yet.</p>
       <div id="ar-entries"></div>
@@ -231,20 +315,23 @@
       <h2>Converter</h2>
       <div class="toolbar">
         <select id="cv-from">
-          <option>CSV</option><option>JSON</option><option>TXT</option><option>PDF</option>
+          <option>CSV</option><option>JSON</option><option>TXT</option>
         </select>
         <span>→</span>
         <select id="cv-to">
-          <option>JSON</option><option>CSV</option><option>Markdown</option><option>JSON (pretty)</option><option>TXT</option>
+          <option>JSON</option><option>CSV</option><option>Markdown</option><option>JSON (pretty)</option>
         </select>
         <button id="cv-run">Convert</button>
         <button id="cv-save">Save output…</button>
+        <button id="cv-clear-history">Clear history</button>
       </div>
-      <p id="cv-note" class="hint">Only real conversions are offered. Unsupported pairs show “Not supported” — no fake output is produced. TXT → Markdown is a heuristic (short standalone lines become headings).</p>
+      <p id="cv-note" class="hint">Only real conversions are offered: CSV → JSON, JSON → CSV, JSON → JSON (pretty), TXT → Markdown (heuristic: short standalone lines become headings). Anything else is not offered as working. Conversions are kept in local history below (this PC only).</p>
       <div class="row2">
         <textarea id="cv-in" placeholder="Paste input here…" spellcheck="false"></textarea>
         <textarea id="cv-out" placeholder="Output appears here…" spellcheck="false" readonly></textarea>
       </div>
+      <h3>Local conversion history</h3>
+      <div id="cv-history"><p class="muted">No conversions yet.</p></div>
     </section>
 
     <!-- SCAN & OCR -->
@@ -252,6 +339,9 @@
       <h2>Scan &amp; OCR</h2>
       <div class="toolbar">
         <button id="sc-pick">🖼️ Pick image…</button>
+        <button id="sc-zoom-out">Zoom −</button>
+        <button id="sc-zoom-in">Zoom ＋</button>
+        <button id="sc-rotate">⟳ Rotate</button>
         <button id="sc-ocr" disabled title="No OCR engine bundled (would require a Tesseract binary)">Run OCR (disabled)</button>
       </div>
       <p class="hint">OCR is disabled: no OCR engine is bundled with this app (it would require a Tesseract binary). Image capture/pick and viewing below are real. No OCR text is ever invented.</p>
@@ -271,9 +361,22 @@
         </select>
         <button id="cd-toggle">📄 Highlight: OFF</button>
         <button id="cd-save">💾 Save</button>
+        <button id="cd-save-as">Save as…</button>
+        <button id="cd-indent" title="Indent selected lines">Indent →</button>
+        <button id="cd-outdent" title="Remove one indent level from selected lines">← Outdent</button>
+      </div>
+      <div class="toolbar">
+        <input id="cd-find" type="text" placeholder="Find in code…">
+        <button id="cd-find-next">↓ Next</button>
+        <button id="cd-find-prev">↑ Prev</button>
+        <span id="cd-find-count" class="muted"></span>
+        <input id="cd-replace" type="text" placeholder="Replace with…">
+        <button id="cd-replace-all">Replace all</button>
       </div>
       <p id="cd-path" class="muted">No code file opened yet. Type or open a file; highlighting covers keywords, strings, comments and numbers.</p>
+      <p id="cd-meta" class="hint">Line endings and BOM are preserved on save: a file opened as CRLF saves as CRLF, and a BOM is kept. Line numbers count the file's lines; highlighting is a preview toggle — editing always happens in plain text.</p>
       <div id="cd-body">
+        <div id="cd-lines" aria-hidden="true"></div>
         <textarea id="cd-text" spellcheck="false" placeholder="// Type code here, or open a file…"></textarea>
         <pre id="cd-preview" class="code-preview"></pre>
       </div>
@@ -300,12 +403,22 @@
       <fieldset>
         <legend>History</legend>
         <label><input id="set-recents-enabled" type="checkbox"> Keep a list of recently opened files and folders</label>
-        <div class="row"><button id="set-clear-recents">Clear recent history</button></div>
+        <div class="row"><label>Keep at most <input id="set-recents-max" type="number" min="0" max="50" style="width:70px"> recent items</label><button id="set-clear-recents">Clear recent history</button></div>
       </fieldset>
       <fieldset>
         <legend>Cache</legend>
         <p class="muted">OmSuite keeps only a small local preview cache. Nothing is uploaded anywhere.</p>
         <div class="row"><button id="set-clear-cache">Clear cache</button><span id="cache-result"></span></div>
+      </fieldset>
+      <fieldset>
+        <legend>Keyboard shortcuts</legend>
+        <p class="muted">These work across the app (menus show the same shortcuts):</p>
+        <ul>
+          <li><strong>Ctrl+N</strong> — new text file · <strong>Ctrl+O</strong> — open folder · <strong>Ctrl+1</strong> — Files · <strong>Ctrl+2</strong> — Editor · <strong>Ctrl+3</strong> — Settings</li>
+          <li><strong>Ctrl+S</strong> — save (Editor) · <strong>Ctrl+Z / Ctrl+Y</strong> — undo / redo · <strong>Ctrl+F</strong> — find (Editor; in Files it focuses the filter)</li>
+          <li><strong>Files:</strong> Ctrl+A select all · Delete — delete selected · F2 — rename · Ctrl+C / Ctrl+X / Ctrl+V — copy / cut / paste · Ctrl+click / Shift+click — multi-select</li>
+          <li><strong>Slides presentation:</strong> ← / → to page · Esc to exit</li>
+        </ul>
       </fieldset>
       <fieldset>
         <legend>Privacy</legend>
@@ -317,6 +430,7 @@
         <p class="muted" id="about-lines"></p>
       </fieldset>
     </section>
+    <div id="global-status" class="statusbar">OmSuite — local only. No account, no cloud, no telemetry.</div>
   </main>
 </div>
 

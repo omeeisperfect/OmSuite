@@ -27,11 +27,15 @@ function parseOpf(opfXml, opfDir) {
     const id = /id=["']([^"']+)["']/.exec(tag);
     const href = /href=["']([^"']+)["']/.exec(tag);
     const media = /media-type=["']([^"']+)["']/.exec(tag);
-    if (id && href) manifest.set(id[1], { href: unescapeXml(href[1]), mediaType: media ? media[1] : '' });
+    const props = /properties=["']([^"']+)["']/.exec(tag);
+    if (id && href) manifest.set(id[1], { id: id[1], href: unescapeXml(href[1]), mediaType: media ? media[1] : '', properties: props ? props[1] : '' });
   }
   const spineRe = /<spine[^>]*>([\s\S]*?)<\/spine>/i.exec(opfXml);
   const spine = [];
+  let spineToc = null;
   if (spineRe) {
+    const tocM = /toc=["']([^"']+)["']/.exec(spineRe[0]);
+    if (tocM) spineToc = tocM[1];
     const refRe = /<itemref[^>]*idref=["']([^"']+)["']/gi;
     let rm;
     while ((rm = refRe.exec(spineRe[1])) !== null) spine.push(rm[1]);
@@ -51,7 +55,45 @@ function parseOpf(opfXml, opfDir) {
     creator: creatorM ? unescapeXml(creatorM[1].replace(/<[^>]+>/g, '').trim()) : '',
     language: langM ? langM[1].trim() : '',
     chapters,
+    manifest,
+    spineToc,
   };
+}
+
+// Table of contents: EPUB 2 NCX navMap first, then an EPUB 3 nav document
+// (manifest item with properties="nav"), then the spine chapter list.
+// Returns [{ title, src, path }] with src as written in the book.
+function parseTocXml(ncxXml) {
+  const toc = [];
+  const pointRe = /<navPoint[\s\S]*?<\/navPoint>/gi;
+  let pm;
+  // navPoint elements nest; a flat scan of navLabel+content pairs in
+  // document order is the reading order for ordinary books.
+  const labelRe = /<navLabel>[\s\S]*?<text>([\s\S]*?)<\/text>/gi;
+  const contentRe = /<content[^>]*src=["']([^"']+)["']/gi;
+  const labels = [...(ncxXml || '').matchAll(labelRe)].map((m) => unescapeXml(m[1].replace(/<[^>]+>/g, '').trim()));
+  const srcs = [...(ncxXml || '').matchAll(contentRe)].map((m) => unescapeXml(m[1]));
+  const n = Math.min(labels.length, srcs.length);
+  for (let i = 0; i < n; i += 1) toc.push({ title: labels[i], src: srcs[i] });
+  void pointRe;
+  void pm;
+  return toc;
+}
+
+function parseNavDocHtml(navHtml) {
+  const toc = [];
+  const aRe = /<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = aRe.exec(navHtml)) !== null) {
+    const title = unescapeXml(m[2].replace(/<[^>]+>/g, '').trim());
+    if (title) toc.push({ title, src: unescapeXml(m[1]) });
+  }
+  return toc;
+}
+
+function resolveBookPath(opfDir, href) {
+  const clean = String(href || '').split('#')[0];
+  return opfDir ? opfDir + '/' + clean : clean;
 }
 
 // Render XHTML as plain text: block elements become line breaks, tags stripped.
@@ -78,6 +120,7 @@ function parseEpub(buffer) {
   const opfXml = zipCore.readEntry(buffer, opfEntry).toString('utf8');
   const opfDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/')) : '';
   const meta = parseOpf(opfXml, opfDir);
+  const encrypted = byName.has('META-INF/encryption.xml');
   const chapters = meta.chapters.map((ch) => {
     const entry = byName.get(ch.path) || byName.get(ch.href);
     let text = '';
@@ -87,9 +130,39 @@ function parseEpub(buffer) {
       try { text = xhtmlToText(zipCore.readEntry(buffer, entry).toString('utf8')); }
       catch (err) { error = err.message; }
     }
-    return { ...ch, text, error };
+    const firstLine = text ? text.split('\n')[0].slice(0, 80) : '';
+    return { ...ch, text, error, title: firstLine || ch.path };
   });
-  return { title: meta.title, creator: meta.creator, language: meta.language, chapters };
+  // Table of contents.
+  let toc = [];
+  const ncxItem = meta.spineToc ? meta.manifest.get(meta.spineToc) : null;
+  const ncxFromType = [...meta.manifest.values()].find((it) => it.mediaType === 'application/x-dtbncx+xml');
+  const ncx = ncxItem || ncxFromType;
+  if (ncx) {
+    const ncxPath = resolveBookPath(opfDir, ncx.href);
+    const ncxEntry = byName.get(ncxPath) || byName.get(ncx.href);
+    if (ncxEntry) {
+      try {
+        toc = parseTocXml(zipCore.readEntry(buffer, ncxEntry).toString('utf8'))
+          .map((t) => ({ ...t, path: resolveBookPath(opfDir, t.src) }));
+      } catch { toc = []; }
+    }
+  }
+  if (toc.length === 0) {
+    const navItem = [...meta.manifest.values()].find((it) => (it.properties || '').split(/\s+/).includes('nav'));
+    if (navItem) {
+      const navPath = resolveBookPath(opfDir, navItem.href);
+      const navEntry = byName.get(navPath) || byName.get(navItem.href);
+      if (navEntry) {
+        try {
+          toc = parseNavDocHtml(zipCore.readEntry(buffer, navEntry).toString('utf8'))
+            .map((t) => ({ ...t, path: resolveBookPath(opfDir, t.src) }));
+        } catch { toc = []; }
+      }
+    }
+  }
+  if (toc.length === 0) toc = chapters.map((ch) => ({ title: ch.title, src: ch.href, path: ch.path }));
+  return { title: meta.title, creator: meta.creator, language: meta.language, chapters, toc, encrypted };
 }
 
-module.exports = { unescapeXml, parseContainerXml, parseOpf, xhtmlToText, parseEpub };
+module.exports = { unescapeXml, parseContainerXml, parseOpf, xhtmlToText, parseEpub, parseTocXml, parseNavDocHtml };

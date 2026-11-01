@@ -48,6 +48,31 @@ object FileUtils {
         "jpg", "jpeg" -> "image/jpeg"
         else -> "*/*"
     }
+
+    /** Split "report (1).txt" into ("report (1)", "txt"); no-dot names give ("name", ""). */
+    fun splitNameExt(name: String): Pair<String, String> {
+        val dot = name.lastIndexOf('.')
+        if (dot <= 0 || dot == name.length - 1) return Pair(name, "")
+        return Pair(name.substring(0, dot), name.substring(dot + 1))
+    }
+
+    /**
+     * A name that does not collide with [existing]: "a.txt" -> "a (1).txt"
+     * -> "a (2).txt" ... Never returns a name already in [existing].
+     * Used for copy/move/duplicate and ZIP-entry conflicts instead of
+     * silently overwriting.
+     */
+    fun uniqueName(existing: Set<String>, base: String): String {
+        if (base !in existing) return base
+        val (stem, ext) = splitNameExt(base)
+        val suffix = if (ext.isEmpty()) "" else ".$ext"
+        var n = 1
+        while (true) {
+            val candidate = "$stem ($n)$suffix"
+            if (candidate !in existing) return candidate
+            n++
+        }
+    }
 }
 
 enum class SortField { NAME, TYPE, SIZE, MODIFIED }

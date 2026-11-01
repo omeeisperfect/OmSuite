@@ -50,7 +50,14 @@ object ZipUtils {
     data class ExtractResult(val files: Map<String, ByteArray>, val skippedUnsafe: List<String>)
 
     /** Extract all entries into memory. Unsafe entries are skipped, not extracted. */
-    fun extractAll(zipBytes: ByteArray): ExtractResult {
+    fun extractAll(zipBytes: ByteArray): ExtractResult =
+        extractMatching(zipBytes) { true }
+
+    /** Extract only the entries named in [wanted] (browse-before-extract). */
+    fun extractSelected(zipBytes: ByteArray, wanted: Set<String>): ExtractResult =
+        extractMatching(zipBytes) { it in wanted }
+
+    private fun extractMatching(zipBytes: ByteArray, want: (String) -> Boolean): ExtractResult {
         val files = linkedMapOf<String, ByteArray>()
         val skipped = mutableListOf<String>()
         ZipInputStream(ByteArrayInputStream(zipBytes)).use { zip ->
@@ -60,7 +67,7 @@ object ZipUtils {
                     // Directories carry no bytes; the screen recreates them as needed.
                 } else if (!FileUtils.isSafeArchiveEntry(entry.name)) {
                     skipped.add(entry.name)
-                } else {
+                } else if (want(entry.name)) {
                     files[entry.name] = zip.readBytes()
                 }
                 entry = zip.nextEntry

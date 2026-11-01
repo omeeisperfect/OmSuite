@@ -105,5 +105,85 @@ class TextTest(unittest.TestCase):
         self.assertIn("truncated", preview)
 
 
+class TextCorrectionTest(unittest.TestCase):
+    """Correction pass (1 Nov 2026): Markdown->HTML subset safety,
+    code tokenizer edge cases. Existing tests above are untouched."""
+
+    def test_markdown_subset_structure(self):
+        html_text, warnings = tc.markdown_to_html(
+            "# Title\n\nHello **bold** and *italic* with `code`.\n\n"
+            "- one\n- two\n\n1. first\n2. second\n\n> quoted\n\n---\n")
+        self.assertIn("<h1>Title</h1>", html_text)
+        self.assertIn("<strong>bold</strong>", html_text)
+        self.assertIn("<em>italic</em>", html_text)
+        self.assertIn("<code>code</code>", html_text)
+        self.assertIn("<ul><li>one</li><li>two</li></ul>", html_text)
+        self.assertIn("<ol><li>first</li><li>second</li></ol>", html_text)
+        self.assertIn("<blockquote>quoted</blockquote>", html_text)
+        self.assertIn("<hr>", html_text)
+        self.assertEqual(warnings, [])
+
+    def test_markdown_script_never_executes(self):
+        html_text, _ = tc.markdown_to_html(
+            "<script>alert(1)</script>\n\n"
+            "[click](javascript:alert(2))\n\n"
+            "![pic](data:image/png;base64,AAA)\n")
+        self.assertNotIn("<script>", html_text)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", html_text)
+        self.assertNotIn("javascript:", html_text)
+        self.assertNotIn("data:image", html_text)
+        self.assertIn("click", html_text)  # label kept, URL dropped
+        self.assertIn("pic", html_text)  # alt text kept, URL dropped
+
+    def test_markdown_safe_links_and_table(self):
+        html_text, _ = tc.markdown_to_html(
+            "[ok](https://example.com/?a=1&b=2)\n\n"
+            "| name | age |\n| --- | --- |\n| ada | 36 |\n")
+        self.assertIn('<a href="https://example.com/?a=1&amp;b=2">ok</a>',
+                      html_text)
+        self.assertIn("<th>name</th>", html_text)
+        self.assertIn("<td>ada</td>", html_text)
+
+    def test_markdown_fence_and_unclosed_fence_warning(self):
+        html_text, warnings = tc.markdown_to_html(
+            "```python\nprint('<b>')\n```\n")
+        self.assertIn("<pre><code>", html_text)
+        # html.escape(quote=True) escapes the quotes too — correct.
+        self.assertIn("print(&#x27;&lt;b&gt;&#x27;)", html_text)
+        self.assertEqual(warnings, [])
+        _, warnings = tc.markdown_to_html("```\nnever closed\n")
+        self.assertTrue(any("Unclosed" in w for w in warnings))
+
+    def test_markdown_edge_cases(self):
+        from errors import OversizedInputError
+        self.assertEqual(tc.markdown_to_html(""), ("", []))
+        self.assertRaises(MalformedInputError, tc.markdown_to_html,
+                          "bad\x00text")
+        self.assertRaises(OversizedInputError, tc.markdown_to_html,
+                          "x" * 50, max_chars=10)
+
+    def test_tokenizer_kinds_and_html(self):
+        tokens = tc.tokenize_code("def f(x): # note\n    return x + 1\n")
+        kinds = [(t.kind, t.text) for t in tokens if t.kind != "whitespace"]
+        self.assertIn(("keyword", "def"), kinds)
+        self.assertIn(("comment", "# note"), kinds)
+        self.assertIn(("keyword", "return"), kinds)
+        self.assertIn(("number", "1"), kinds)
+        self.assertIn(("identifier", "f"), kinds)
+        rendered = tc.tokens_to_html(tokens)
+        self.assertIn('<span class="tok-keyword">def</span>', rendered)
+        self.assertNotIn("<script>", tc.tokens_to_html(
+            tc.tokenize_code("s = '<script>'\n")))
+        self.assertIn("&lt;script&gt;", tc.tokens_to_html(
+            tc.tokenize_code("s = '<script>'\n")))
+
+    def test_tokenizer_edge_cases(self):
+        from errors import OversizedInputError
+        self.assertEqual(tc.tokenize_code(""), [])
+        self.assertRaises(MalformedInputError, tc.tokenize_code, "a\x00b")
+        self.assertRaises(OversizedInputError, tc.tokenize_code,
+                          "x" * 50, max_chars=10)
+
+
 if __name__ == "__main__":
     unittest.main()

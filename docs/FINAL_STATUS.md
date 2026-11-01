@@ -130,6 +130,13 @@ unsigned/debug labelling.
 
 ## 12. Comprehensive tests deliberately deferred (user's later testing phase)
 
+**Correction-pass update, 1 Nov 2026:** the items below remain deferred
+except where noted. Since this section was written, the public repository
+exists, Android and Windows CI have run green, and release v0.1.0 carries a
+debug APK + unsigned Windows installer. Android OCR now exists (ML Kit,
+on-device) but its accuracy testing is still deferred. The full current
+deferred list is also in `docs/PDF_SPEC_CHECKLIST.md`.
+
 Per Master Instructions §13, the following were **not** performed and
 must not be claimed:
 

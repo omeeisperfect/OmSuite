@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -30,7 +31,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +81,12 @@ private fun inlineStyled(text: String): AnnotatedString = buildAnnotatedString {
     var i = 0
     while (i < text.length) {
         when {
+            text.startsWith("<u>", i) -> {
+                val end = text.indexOf("</u>", i + 3)
+                if (end < 0) { append(text.substring(i)); break }
+                withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) { append(text.substring(i + 3, end)) }
+                i = end + 4
+            }
             text.startsWith("**", i) -> {
                 val end = text.indexOf("**", i + 2)
                 if (end < 0) { append(text.substring(i)); break }
@@ -113,6 +123,8 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
     var codeHighlight by remember { mutableStateOf(false) }
     var codeLang by remember { mutableStateOf(CodeTokenizer.Language.KOTLIN) }
     var showFind by remember { mutableStateOf(false) }
+    var selection by remember { mutableStateOf(TextRange(0, 0)) }
+    var showLineNumbers by remember { mutableStateOf(true) }
     var findText by remember { mutableStateOf("") }
     var replaceText by remember { mutableStateOf("") }
     var confirmOverwrite by remember { mutableStateOf(false) }
@@ -180,6 +192,24 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
         }
     }
 
+    /** Wrap the current selection (or insert markers at the cursor) for B/I/U. */
+    fun applyFormat(prefix: String, suffix: String) {
+        val sel = selection
+        if (sel.start == sel.end) {
+            val pos = sel.start.coerceIn(0, text.length)
+            undoStack.push(text)
+            text = text.substring(0, pos) + prefix + suffix + text.substring(pos)
+            selection = TextRange(pos + prefix.length)
+        } else {
+            val start = minOf(sel.start, sel.end).coerceIn(0, text.length)
+            val end = maxOf(sel.start, sel.end).coerceIn(0, text.length)
+            undoStack.push(text)
+            text = text.substring(0, start) + prefix + text.substring(start, end) + suffix + text.substring(end)
+            selection = TextRange(start, end + prefix.length + suffix.length)
+        }
+        scheduleAutosave()
+    }
+
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = onBack) { Text("← Back") }
@@ -204,6 +234,24 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
             Spacer(Modifier.padding(2.dp))
             OutlinedButton(onClick = { undoStack.redo(text)?.let { text = it } }, enabled = undoStack.canRedo()) { Text("Redo") }
         }
+        Row {
+            OutlinedButton(onClick = { applyFormat("**", "**") }) { Text("B") }
+            Spacer(Modifier.padding(2.dp))
+            OutlinedButton(onClick = { applyFormat("*", "*") }) { Text("I") }
+            Spacer(Modifier.padding(2.dp))
+            OutlinedButton(onClick = { applyFormat("<u>", "</u>") }) { Text("U") }
+            Spacer(Modifier.padding(4.dp))
+            Text(
+                "Select text first to format it, or tap with no selection to insert markers at the cursor. " +
+                    "Bold/italic use Markdown markers; underline uses <u>…</u> (shown underlined in preview).",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Text(
+            "${text.split("\n").size} line(s) • ${text.split(' ', '\n', '\t').count { it.isNotEmpty() }} word(s) • ${text.length} character(s)",
+            style = MaterialTheme.typography.bodySmall
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = codeHighlight, onCheckedChange = { codeHighlight = it })
             Text("Code highlight")
@@ -236,6 +284,12 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
         if (showFind) {
             OutlinedTextField(value = findText, onValueChange = { findText = it }, label = { Text("Find") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = replaceText, onValueChange = { replaceText = it }, label = { Text("Replace with") }, modifier = Modifier.fillMaxWidth())
+            if (findText.isNotEmpty()) {
+                Text(
+                    "${text.split(findText).size - 1} match(es) for “$findText”.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             Row {
                 Button(onClick = {
                     if (findText.isNotEmpty()) {
@@ -263,8 +317,8 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
                         MarkdownParser.BlockKind.HEADING1 -> Text(inlineStyled(block.text), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 4.dp))
                         MarkdownParser.BlockKind.HEADING2 -> Text(inlineStyled(block.text), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 4.dp))
                         MarkdownParser.BlockKind.HEADING3 -> Text(inlineStyled(block.text), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 4.dp))
-                        MarkdownParser.BlockKind.BULLET -> Text("• " + inlineStyled(block.text).text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 2.dp))
-                        MarkdownParser.BlockKind.NUMBERED -> Text("• " + inlineStyled(block.text).text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 2.dp))
+                        MarkdownParser.BlockKind.BULLET -> Text(buildAnnotatedString { append("• "); append(inlineStyled(block.text)) }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 2.dp))
+                        MarkdownParser.BlockKind.NUMBERED -> Text(buildAnnotatedString { append("• "); append(inlineStyled(block.text)) }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 2.dp))
                         MarkdownParser.BlockKind.QUOTE -> Text(inlineStyled(block.text), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 2.dp))
                         MarkdownParser.BlockKind.RULE -> Text("———", style = MaterialTheme.typography.bodySmall)
                         MarkdownParser.BlockKind.CODE -> Text(block.text, fontFamily = FontFamily.Monospace, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
@@ -277,19 +331,43 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
                 )
             }
         } else if (codeHighlight) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = showLineNumbers, onCheckedChange = { showLineNumbers = it })
+                Text("Line numbers")
+            }
+            val codeVScroll = rememberScrollState()
+            val codeHScroll = rememberScrollState()
+            val lineCount = text.split("\n").size
+            Row(Modifier.fillMaxSize()) {
+                if (showLineNumbers) {
+                    Text(
+                        (1..lineCount).joinToString("\n"),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.verticalScroll(codeVScroll).padding(4.dp)
+                    )
+                }
                 Text(
                     highlightCode(text, codeLang),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 13.sp,
-                    modifier = Modifier.padding(4.dp)
+                    softWrap = false,
+                    modifier = Modifier.weight(1f).verticalScroll(codeVScroll).horizontalScroll(codeHScroll).padding(4.dp)
                 )
             }
         } else {
             OutlinedTextField(
-                value = text,
+                value = TextFieldValue(
+                    text,
+                    TextRange(
+                        selection.start.coerceIn(0, text.length),
+                        selection.end.coerceIn(0, text.length)
+                    )
+                ),
                 onValueChange = { next ->
-                    if (next != text) { undoStack.push(text); text = next; scheduleAutosave() }
+                    selection = next.selection
+                    if (next.text != text) { undoStack.push(text); text = next.text; scheduleAutosave() }
                 },
                 modifier = Modifier.fillMaxSize(),
                 placeholder = { Text("Start writing… (TXT, MD, JSON, XML, YAML, HTML)") }

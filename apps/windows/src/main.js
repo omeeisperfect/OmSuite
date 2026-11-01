@@ -155,6 +155,8 @@ function registerIpc() {
   ipcMain.handle('sheet:compute', wrap((grid) => sheetCore.computeGrid(grid)));
   ipcMain.handle('sheet:csv-parse', wrap((text) => sheetCore.csvToGrid(text)));
   ipcMain.handle('sheet:csv-stringify', wrap((grid) => sheetCore.gridToCsv(grid)));
+  ipcMain.handle('sheet:sort-rows', wrap((grid, col, dir, hasHeader) => sheetCore.sortGridRows(grid, col, dir, hasHeader)));
+  ipcMain.handle('sheet:format-grid', wrap((computed, formats) => (computed || []).map((row, r) => (row || []).map((v, c) => sheetCore.formatCellValue(v, (formats || {})[r + ',' + c] || 'general')))));
   ipcMain.handle('pdf:info', wrap((p) => {
     const buf = fs.readFileSync(p);
     const out = pdfCore.parsePdf(buf);
@@ -182,18 +184,57 @@ function registerIpc() {
   }));
   ipcMain.handle('archives:extract', wrap((zipPath, destDir) => {
     const buf = fs.readFileSync(zipPath);
-    const entries = zipCore.extractZip(buf);
+    const entries = zipCore.listZip(buf);
+    let done = 0;
+    let renamed = 0;
+    const skippedEncrypted = [];
     for (const e of entries) {
-      // Zip-slip guard: every entry must stay inside destDir.
-      const target = path.resolve(destDir, e.name);
-      if (target !== path.resolve(destDir) && !target.startsWith(path.resolve(destDir) + path.sep)) {
+      if (e.name.endsWith('/')) continue;
+      if (e.encrypted) { skippedEncrypted.push(e.name); continue; }
+      const target = zipCore.safeJoin(destDir, e.name);
+      if (target === null) {
         throw new Error('Refusing to extract an entry that escapes the folder: ' + e.name);
       }
+      const data = zipCore.readEntry(buf, e);
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, e.data);
+      let finalTarget = target;
+      if (fs.existsSync(target)) {
+        // Never silently overwrite: clashing files get a numbered name.
+        finalTarget = path.join(path.dirname(target), fileCore.uniqueCopyName(path.dirname(target), path.basename(target)));
+        renamed += 1;
+      }
+      fs.writeFileSync(finalTarget, data);
+      done += 1;
     }
-    return { destDir, entries: entries.length };
+    return { destDir, entries: done, renamed, skippedEncrypted };
   }));
+  ipcMain.handle('archives:extract-selected', wrap((zipPath, destDir, names) => {
+    const buf = fs.readFileSync(zipPath);
+    const picked = zipCore.extractSelected(buf, names, destDir);
+    let renamed = 0;
+    for (const e of picked) {
+      const target = zipCore.safeJoin(destDir, e.name);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      let finalTarget = target;
+      if (fs.existsSync(target)) {
+        finalTarget = path.join(path.dirname(target), fileCore.uniqueCopyName(path.dirname(target), path.basename(target)));
+        renamed += 1;
+      }
+      fs.writeFileSync(finalTarget, e.data);
+    }
+    return { destDir, entries: picked.length, renamed };
+  }));
+  // Copy with progress events sent to the renderer as the copy proceeds.
+  ipcMain.handle('files:copy-progress', async (event, src, destDir) => {
+    try {
+      const dest = await fileCore.copyEntryAsync(src, destDir, (prog) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('files:copy-progress', prog);
+        }
+      });
+      return ok(dest);
+    } catch (err) { return fail(err); }
+  });
   ipcMain.handle('convert:run', wrap((from, to, text) => {
     const r = convertCore.convert(from, to, text);
     if (!r.ok) throw new Error(r.error);

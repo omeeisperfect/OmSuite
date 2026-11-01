@@ -1,18 +1,30 @@
 """Conversion engine (reference implementation, Python stdlib only).
 
-ONLY the conversions below are implemented and tested. Each function
-returns ``(output_text, warnings)``; warnings describe fidelity loss and
-must be shown to the user — a conversion that silently drops data is a
-bug, not a feature.
+ONLY the conversions below are implemented and tested. Every conversion
+returns its output plus loss warnings — either as the historical
+``(output_text, warnings)`` tuple from the individual functions, or as a
+``ConversionResult`` from the ``convert`` dispatcher / ``convert_file``
+helper. Warnings describe fidelity loss and must be shown to the user —
+a conversion that silently drops data is a bug, not a feature.
 
-Implemented:
-1. txt_to_md / md_to_txt
-2. json_pretty / json_minify (via text_core)
-3. csv_to_json / json_to_csv
-4. csv_to_md_table / md_table_to_csv
+Implemented (the full, closed list — anything else is an error):
+1. txt -> md, md -> txt
+2. json -> json (pretty-print, or minify with ``minify=True``)
+3. csv -> json, json -> csv
+4. csv -> md (Markdown table), md -> csv (Markdown table)
 
 NOT implemented (no verified engine here): DOCX / XLSX / PPTX / PDF /
-EPUB / image / audio / video conversion, OCR. See STATUS.md.
+EPUB / image / audio / video conversion, OCR. ``convert`` raises
+``UnsupportedFormatError`` naming the requested pair for every one of
+these, instead of producing garbage output. See STATUS.md.
+
+Source safety: conversions operate on text and never touch the source
+file. ``convert_file`` reads the source, writes the destination with an
+explicit conflict policy (default "error"), and refuses a destination
+identical to the source, so the source is unchanged by default.
+``ConversionHistory`` is an in-memory record of conversions performed
+through ``convert_file`` (apps persist it themselves if they want it to
+survive restarts — this engine stores no database).
 """
 
 from __future__ import annotations
@@ -21,8 +33,14 @@ import csv
 import io
 import json
 import re
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
 
-from errors import MalformedInputError
+from errors import (ConflictError, MalformedInputError, NotFoundError,
+                    UnsupportedFormatError, wrap_os_error)
+from file_core import atomic_write
 from text_core import format_json, validate_json
 
 # ---------------------------------------------------------------- TXT/MD ----
@@ -240,3 +258,151 @@ def md_table_to_csv(text: str) -> tuple[str, list[str]]:
     if ignored:
         warnings.append(f"{ignored} non-table line(s) ignored.")
     return buf.getvalue(), warnings
+
+
+# ------------------------------------------------------------ dispatcher ----
+
+_FORMAT_ALIASES = {
+    "txt": "txt", "text": "txt", "plain": "txt",
+    "md": "md", "markdown": "md",
+    "json": "json",
+    "csv": "csv",
+}
+
+SUPPORTED_CONVERSIONS = {
+    ("txt", "md"), ("md", "txt"),
+    ("json", "json"),
+    ("csv", "json"), ("json", "csv"),
+    ("csv", "md"), ("md", "csv"),
+}
+
+
+@dataclass
+class ConversionResult:
+    """One conversion's outcome. ``warnings`` MUST be shown to the user
+    (they are the fidelity-loss record); ``source_unchanged`` is True
+    for every conversion this engine performs, because conversions
+    never write to the source (see ``convert_file``)."""
+    output_text: str
+    warnings: list[str] = field(default_factory=list)
+    source_format: str = ""
+    target_format: str = ""
+    source_unchanged: bool = True
+
+
+def convert(text: str, source_format: str, target_format: str, *,
+            json_indent: int = 2, minify: bool = False,
+            ) -> ConversionResult:
+    """Convert ``text`` between two formats. Only the pairs in
+    ``SUPPORTED_CONVERSIONS`` work; every other pair raises
+    ``UnsupportedFormatError`` naming the pair and listing what IS
+    supported, so an app can never present an unimplemented conversion
+    as if it worked. Format names are case-insensitive; "markdown" is
+    accepted for "md"."""
+    src = _FORMAT_ALIASES.get(source_format.strip().lower())
+    dst = _FORMAT_ALIASES.get(target_format.strip().lower())
+    if src is None or dst is None:
+        raise UnsupportedFormatError(
+            f"Unknown format(s) for conversion: {source_format!r} -> "
+            f"{target_format!r} (supported: txt, md, json, csv).")
+    if (src, dst) not in SUPPORTED_CONVERSIONS:
+        supported = ", ".join(f"{a}->{b}"
+                              for a, b in sorted(SUPPORTED_CONVERSIONS))
+        raise UnsupportedFormatError(
+            f"Conversion {src}->{dst} is not supported (no verified "
+            f"engine). Supported conversions: {supported}.")
+    if (src, dst) == ("txt", "md"):
+        out, warnings = txt_to_md(text)
+    elif (src, dst) == ("md", "txt"):
+        out, warnings = md_to_txt(text)
+    elif (src, dst) == ("json", "json"):
+        if minify:
+            out, warnings = json_minify(text)
+        else:
+            out, warnings = format_json(text, indent=json_indent)
+    elif (src, dst) == ("csv", "json"):
+        out, warnings = csv_to_json(text)
+    elif (src, dst) == ("json", "csv"):
+        out, warnings = json_to_csv(text)
+    elif (src, dst) == ("csv", "md"):
+        out, warnings = csv_to_md_table(text)
+    else:  # ("md", "csv")
+        out, warnings = md_table_to_csv(text)
+    return ConversionResult(output_text=out, warnings=warnings,
+                            source_format=src, target_format=dst,
+                            source_unchanged=True)
+
+
+@dataclass
+class ConversionRecord:
+    """One history entry: what was converted, when, and how much was
+    lost (warning count). No file contents are stored here."""
+    source_format: str
+    target_format: str
+    output_path: str
+    warning_count: int
+    timestamp: float = field(default_factory=time.time)
+
+
+class ConversionHistory:
+    """In-memory conversion history (Master Instructions §3.10:
+    "maintain local conversion history with a clear option to clear
+    it"). Apps that want persistence store these records themselves."""
+
+    def __init__(self) -> None:
+        self._records: list[ConversionRecord] = []
+
+    def add(self, result: ConversionResult, output_path: str | Path) -> None:
+        self._records.append(ConversionRecord(
+            source_format=result.source_format,
+            target_format=result.target_format,
+            output_path=str(output_path),
+            warning_count=len(result.warnings)))
+
+    @property
+    def records(self) -> list[ConversionRecord]:
+        return list(self._records)
+
+    def clear(self) -> None:
+        self._records.clear()
+
+    def __len__(self) -> int:
+        return len(self._records)
+
+
+def convert_file(src: str | Path, dst: str | Path, *,
+                 source_format: str | None = None,
+                 target_format: str | None = None,
+                 policy: str = "error",
+                 history: ConversionHistory | None = None,
+                 **convert_kwargs) -> ConversionResult:
+    """Convert one file to another. Formats default to the files'
+    extensions (``.txt`` / ``.md`` / ``.json`` / ``.csv``). The source
+    file is only ever READ: a destination identical to the source is
+    refused, and the destination is written atomically with the given
+    conflict policy (default "error" — never a silent overwrite). When
+    ``history`` is given, the conversion is recorded there."""
+    src, dst = Path(src), Path(dst)
+    if src == dst or (src.exists() and src.resolve() == dst.resolve()):
+        raise ConflictError(
+            f"Refusing to convert a file onto itself (source would "
+            f"change): {src}")
+    if source_format is None:
+        source_format = src.suffix.lstrip(".") or ""
+    if target_format is None:
+        target_format = dst.suffix.lstrip(".") or ""
+    try:
+        text = src.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise NotFoundError(f"Source file not found: {src}") from exc
+    except UnicodeDecodeError as exc:
+        raise MalformedInputError(
+            f"Source file is not valid UTF-8 text: {src}") from exc
+    except OSError as exc:
+        raise wrap_os_error(exc, str(src)) from exc
+    result = convert(text, source_format, target_format, **convert_kwargs)
+    atomic_write(dst, result.output_text.encode("utf-8"),
+                 policy=policy)  # type: ignore[arg-type]
+    if history is not None:
+        history.add(result, dst)
+    return result

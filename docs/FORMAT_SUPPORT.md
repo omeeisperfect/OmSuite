@@ -83,6 +83,58 @@ Supported on device evidence alone.
   they are NOT promoted here even though viewer/player/ML Kit UI exists in the apps.
   All other cells in the table below remain as written.
 
+## PDF-spec correction pass — 1 Nov 2026: verified promotions (supersedes the table below ONLY for the cells listed here)
+
+Test evidence: Windows `npm test` 41/41; shared `unittest` 118 run / 117 pass /
+1 skipped; Android unit tests exist but are CI-verified only (local Gradle
+blocked), and Android device behaviour is Not Tested — so Android cells below
+are Partial at most, never Supported on device evidence alone.
+
+- **TXT Open/Create/Edit → Supported (both platforms, UTF-8 plain text).**
+  Writer/Editor + text-core tests; Windows CRLF/BOM detection and re-application
+  tested (mixed endings save as LF, labelled in UI).
+- **MD Open/Create/Edit → Partial (both platforms).** Markdown subset only
+  (headings, bold, italic, lists, code, tables in shared engine only); script
+  injection escaped, `javascript:`/`data:` links refused as plain text.
+- **JSON Open/Create/Edit + Convert (pretty-print/minify) → Supported (both
+  platforms).** validateJson/format tests (Windows, shared, Android JsonUtils).
+- **CSV Open/Create/Edit → Partial (both platforms).** Sheets grid + CSV
+  load/save; formulas `+ - * /`, parens, A1 refs, SUM/AVERAGE/MIN/MAX/COUNT,
+  per-cell errors. CSV→JSON and JSON→CSV Convert → Partial (round-trip tested).
+  CSV→MD-table Convert → Partial (shared engine only).
+- **XLSX → Partial for the shared engine ONLY** (single worksheet, no styles/
+  dates/charts/merged cells). App Sheets cells for XLSX remain **Not
+  implemented** — the apps load/save CSV and (Windows) workbook JSON, not XLSX.
+- **PDF Open (view) → Partial (both platforms).** Android PdfRenderer view +
+  thumbnails/search/zoom/view-rotation/page-PNG; Windows embed view +
+  best-effort text extract (pdf-core tests on synthetic PDFs). PDF
+  Create/Edit (merge/split/page-ops/annotation/text-edit) → **Not supported
+  in this build** (no PDF library vendored; buttons disabled with reason).
+  PDF text extract is best-effort only (no layout, font/ToUnicode,
+  scanned-image, or encrypted-PDF support). Android Scan PDF export is
+  image-only with no text layer (stated in UI).
+- **ZIP Open (browse)/Create/Extract → Supported (both platforms,
+  stored+deflate).** zip-core / ZipUtils / archive_core round-trip tests,
+  traversal guard, per-entry selection, conflict handling, encrypted entries
+  refused. RAR/7Z/TAR remain **Not supported** for create/extract in the apps
+  (RAR Create remains Not supported per the licence reason in the table).
+- **EPUB Open → Partial (both platforms).** Plain-text chapter reading only
+  (container/OPF/spine, TOC, bookmarks, progress, search; epub-core /
+  EpubParser tests on synthetic EPUBs). No images, styles, DRM, or EPUB
+  Create/Edit. MOBI/AZW → **Not supported** (refused with UNSUPPORTED_FORMAT
+  in the shared engine; not offered in the apps).
+- **HTML Create → Partial (Slides export only).** Deck → single HTML file
+  (slide_core tests; Android and Windows both embed images as data URLs).
+- **JPG/PNG Open (preview) → Partial (both platforms).** Image zoom/rotate
+  via platform viewers; crop/adjust/metadata/transcoding Not implemented.
+  Audio/video Open (playback) → Partial (queue/seek/speed; background audio
+  and Android subtitles Not implemented). SVG/TIFF/HEIC, DOC/DOCX, XLS, ODS,
+  PPT/PPTX, ODP, ODT/RTF, PSD/AI, EML/MSG/VCF/ICS, MHTML → unchanged:
+  **Not verified** in this matrix (no executed test, no offered operation).
+  XML Open/Create/Edit → Partial (text editing + well-formedness helper;
+  schema validation Not implemented). YAML → Partial (text editing, subset
+  only; anchors/multi-doc/block scalars refused).
+
 > Note on "Open" vs "Preview": the Master Instructions use Open/Preview as one column.
 > In this matrix, **Open** means read + display in the owning module (or a preview where
 > the module's scope is preview-only, stated in the notes). A format whose only honest

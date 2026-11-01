@@ -39,7 +39,18 @@ object FormulaEvaluator {
         return letters.reverse().toString() + (row + 1)
     }
 
-    /** All refs in the rectangle from [start] to [end] inclusive, row-major. */
+    /** Typed formula failure. Codes map to spreadsheet-style in-cell errors. */
+class FormulaError(val code: String) : IllegalArgumentException(code)
+
+/** Error code -> in-cell text shown by Sheets. */
+fun formulaErrorText(code: String): String = when (code) {
+    "DIV0" -> "#DIV/0!"
+    "CIRC" -> "#CIRC!"
+    "NAME" -> "#NAME?"
+    "REF" -> "#REF!"
+    "VALUE" -> "#VALUE!"
+    else -> "#ERR"
+}
     fun expandRange(start: String, end: String): List<String>? {
         val (c1, r1) = parseRef(start) ?: return null
         val (c2, r2) = parseRef(end) ?: return null
@@ -57,13 +68,23 @@ object FormulaEvaluator {
      * pass a lookup that resolves nested formulas with a depth/cycle guard.
      */
     fun evaluate(formula: String, lookup: (String) -> Double?): Double? {
-        val expr = formula.trim()
-        if (!expr.startsWith("=")) return null
         return try {
-            Parser(expr.substring(1), lookup).parseAll()
+            evaluateOrThrow(formula, lookup)
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Like [evaluate] but throws [FormulaError] with a code (DIV0, CIRC,
+     * NAME, REF, VALUE) so the UI can show a specific in-cell error instead
+     * of crashing or showing a generic marker. A lookup may itself throw
+     * FormulaError("CIRC") for a circular reference; it propagates untouched.
+     */
+    fun evaluateOrThrow(formula: String, lookup: (String) -> Double?): Double {
+        val expr = formula.trim()
+        if (!expr.startsWith("=")) throw FormulaError("VALUE")
+        return Parser(expr.substring(1), lookup).parseAll()
     }
 
     private class Parser(private val s: String, private val lookup: (String) -> Double?) {
@@ -72,7 +93,7 @@ object FormulaEvaluator {
         fun parseAll(): Double {
             val v = expr()
             skipWs()
-            if (i != s.length) throw IllegalArgumentException("Trailing input at $i")
+            if (i != s.length) throw FormulaError("VALUE")
             return v
         }
 
@@ -99,7 +120,7 @@ object FormulaEvaluator {
                     i < s.length && s[i] == '/' -> {
                         i++
                         val d = factor()
-                        if (d == 0.0) throw ArithmeticException("Division by zero")
+                        if (d == 0.0) throw FormulaError("DIV0")
                         v /= d
                     }
                     else -> return v
@@ -109,7 +130,7 @@ object FormulaEvaluator {
 
         private fun factor(): Double {
             skipWs()
-            if (i >= s.length) throw IllegalArgumentException("Unexpected end")
+            if (i >= s.length) throw FormulaError("VALUE")
             return when (val c = s[i]) {
                 '+' -> { i++; factor() }
                 '-' -> { i++; -factor() }
@@ -117,13 +138,13 @@ object FormulaEvaluator {
                     i++
                     val v = expr()
                     skipWs()
-                    if (i >= s.length || s[i] != ')') throw IllegalArgumentException("Missing ')'")
+                    if (i >= s.length || s[i] != ')') throw FormulaError("VALUE")
                     i++
                     v
                 }
                 in '0'..'9', '.' -> number()
                 else -> {
-                    if (c.isLetter()) wordOrRef() else throw IllegalArgumentException("Unexpected '$c'")
+                    if (c.isLetter()) wordOrRef() else throw FormulaError("VALUE")
                 }
             }
         }
@@ -132,7 +153,7 @@ object FormulaEvaluator {
             val start = i
             while (i < s.length && (s[i].isDigit() || s[i] == '.')) i++
             return s.substring(start, i).toDoubleOrNull()
-                ?: throw IllegalArgumentException("Bad number")
+                ?: throw FormulaError("VALUE")
         }
 
         /** A bare word is a cell ref; a word followed by '(' is a function call. */
@@ -150,8 +171,8 @@ object FormulaEvaluator {
             val dStart = i
             while (i < s.length && s[i].isDigit()) i++
             val ref = word + s.substring(dStart, i)
-            if (!refRegex.matches(ref)) throw IllegalArgumentException("Bad ref '$ref'")
-            return lookup(ref) ?: throw IllegalArgumentException("Empty/non-numeric ref $ref")
+            if (!refRegex.matches(ref)) throw FormulaError("REF")
+            return lookup(ref) ?: throw FormulaError("VALUE")
         }
 
         /** Reads up to the matching ')' (no nested calls inside ranges, so a simple scan suffices). */
@@ -172,7 +193,7 @@ object FormulaEvaluator {
                 }
                 i++
             }
-            throw IllegalArgumentException("Unclosed function call")
+            throw FormulaError("VALUE")
         }
 
         private fun callFunction(name: String, argsText: String): Double {
@@ -180,20 +201,23 @@ object FormulaEvaluator {
             val rangeMatch = rangeRegex.matchEntire(trimmed)
             val refs: List<String> = if (rangeMatch != null) {
                 expandRange(rangeMatch.groupValues[1], rangeMatch.groupValues[2])
-                    ?: throw IllegalArgumentException("Bad range '$trimmed'")
+                    ?: throw FormulaError("REF")
             } else if (refRegex.matches(trimmed.uppercase())) {
                 listOf(trimmed.uppercase())
             } else {
-                throw IllegalArgumentException("Function $name needs a cell or range")
+                throw FormulaError("VALUE")
             }
             val values = refs.mapNotNull { lookup(it) }
             return when (name) {
                 "SUM" -> values.sum()
+                "MIN" -> values.minOrNull() ?: throw FormulaError("VALUE")
+                "MAX" -> values.maxOrNull() ?: throw FormulaError("VALUE")
+                "COUNT" -> values.size.toDouble()
                 "AVERAGE" -> {
-                    if (values.isEmpty()) throw IllegalArgumentException("AVERAGE of empty range")
+                    if (values.isEmpty()) throw FormulaError("VALUE")
                     values.average()
                 }
-                else -> throw IllegalArgumentException("Unknown function $name")
+                else -> throw FormulaError("NAME")
             }
         }
     }

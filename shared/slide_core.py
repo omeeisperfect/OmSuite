@@ -6,16 +6,22 @@ and an optional image path) and the one portable export every app can
 produce from it — a single HTML file with inline CSS.
 
 Export honesty notes:
-- All user text (titles, bodies) is HTML-escaped: a slide containing
-  ``<script>`` exports as visible text, never as executable markup.
+- All user text (titles, bodies, notes) is HTML-escaped: a slide
+  containing ``<script>`` exports as visible text, never as executable
+  markup.
 - Images: when the image file exists, is a recognised image type
   (png/jpg/jpeg/gif/webp) and is under ``max_image_bytes``, it is
   embedded as a data URI, so the HTML really is a single file. Otherwise
   the export falls back to an escaped ``src`` reference (or drops the
   image) and reports a warning — the warning must be shown, because a
   referenced image breaks the "single file" claim.
-- No animations, transitions, speaker notes or PPTX import/export:
-  those are NOT implemented. PPTX is a separate, unbuilt engine.
+- Speaker notes: each slide has a ``notes`` field (presenter notes,
+  Master Instructions §3.4 "speaker notes where supported"). They are
+  NOT shown in the presentation by default: ``export_html`` only renders
+  them (as an escaped ``<aside class="notes">``) when
+  ``include_notes=True`` — a presenter handout, not the slide itself.
+- No animations, transitions or PPTX import/export: those are NOT
+  implemented. PPTX is a separate, unbuilt engine.
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ class Slide:
     title: str = ""
     body: str = ""
     image_path: str | None = None
+    notes: str = ""  # speaker notes; not shown unless export asks for them
 
 
 @dataclass
@@ -44,16 +51,18 @@ class Deck:
     slides: list[Slide] = field(default_factory=list)
 
     def add_slide(self, title: str = "", body: str = "",
-                  image_path: str | None = None) -> Slide:
-        slide = Slide(title=title, body=body, image_path=image_path)
+                  image_path: str | None = None, notes: str = "") -> Slide:
+        slide = Slide(title=title, body=body, image_path=image_path,
+                      notes=notes)
         self.slides.append(slide)
         return slide
 
     def insert_slide(self, index: int, title: str = "", body: str = "",
-                     image_path: str | None = None) -> Slide:
+                     image_path: str | None = None, notes: str = "") -> Slide:
         if index < 0 or index > len(self.slides):
             raise IndexError(f"Slide index out of range: {index}")
-        slide = Slide(title=title, body=body, image_path=image_path)
+        slide = Slide(title=title, body=body, image_path=image_path,
+                      notes=notes)
         self.slides.insert(index, slide)
         return slide
 
@@ -61,6 +70,22 @@ class Deck:
         if index < 0 or index >= len(self.slides):
             raise IndexError(f"Slide index out of range: {index}")
         return self.slides.pop(index)
+
+    def duplicate_slide(self, index: int) -> Slide:
+        """Copy slide ``index`` and insert the copy right after it
+        (the standard duplicate-slide operation). The copy is a new
+        Slide object, so editing it never changes the original."""
+        if index < 0 or index >= len(self.slides):
+            raise IndexError(f"Slide index out of range: {index}")
+        original = self.slides[index]
+        copy = Slide(title=original.title, body=original.body,
+                     image_path=original.image_path, notes=original.notes)
+        self.slides.insert(index + 1, copy)
+        return copy
+
+    def clear(self) -> None:
+        """Remove all slides (the deck object itself is kept)."""
+        self.slides.clear()
 
     def move_slide(self, from_index: int, to_index: int) -> None:
         """Move a slide so it ends up at ``to_index`` (final position)."""
@@ -115,16 +140,22 @@ _CSS = ("body{font-family:system-ui,sans-serif;margin:0;background:#111827}"
         "background:#fff;border-bottom:2px solid #111827}"
         ".slide h1{font-size:2.2em;margin:0 0 .4em}"
         ".slide p{font-size:1.2em;line-height:1.6;white-space:pre-wrap}"
-        ".slide img{max-width:100%;max-height:60vh;display:block;margin-top:1em}")
+        ".slide img{max-width:100%;max-height:60vh;display:block;margin-top:1em}"
+        ".notes{margin-top:2em;padding:1em;background:#fef9c3;"
+        "border-left:4px solid #eab308;font-size:1em;white-space:pre-wrap}")
 
 
 def export_html(deck: Deck, *, embed_images: bool = True,
-                max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES
+                max_image_bytes: int = DEFAULT_MAX_IMAGE_BYTES,
+                include_notes: bool = False,
                 ) -> tuple[str, list[str]]:
     """Render a deck as one self-contained HTML document (inline CSS,
     user text escaped). Returns ``(html, warnings)``; warnings cover
     images that could not be embedded (see module docstring) and must
-    be shown, since they break the single-file claim."""
+    be shown, since they break the single-file claim. Speaker notes are
+    only rendered when ``include_notes`` is True (handout mode); by
+    default they stay out of the presentation entirely.
+    """
     warnings: list[str] = []
     doc_title = html.escape(deck.title or
                             (deck.slides[0].title if deck.slides else
@@ -137,6 +168,9 @@ def export_html(deck: Deck, *, embed_images: bool = True,
             parts.append(f"<h1>{html.escape(slide.title, quote=True)}</h1>\n")
         if slide.body:
             parts.append(f"<p>{html.escape(slide.body, quote=True)}</p>\n")
+        if include_notes and slide.notes:
+            parts.append("<aside class=\"notes\">"
+                         f"{html.escape(slide.notes, quote=True)}</aside>\n")
         tag = _image_tag(slide, index, warnings,
                          embed_images=embed_images,
                          max_image_bytes=max_image_bytes)

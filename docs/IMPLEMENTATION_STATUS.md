@@ -19,18 +19,18 @@ as implementation evidence.
 
 | Module | Android | Windows | Shared reference |
 |---|---|---|---|
-| File Manager | Partially complete (code complete, **Not verified** on device) | Complete for the listed scope (unit-tested; Windows behaviour **Not Tested**) | Tested reference (part of 36 tests: 35 pass, 1 skipped) |
-| Writer / Text Editor | Partially complete (code complete, **Not verified** on device) | Complete for the listed scope (unit-tested; Windows behaviour **Not Tested**) | Tested reference (TXT/MD/JSON/XML/YAML-subset) |
-| Code / Text Editor (syntax, JSON/MD tools) | Partial (text editing + JSON validate/format + MD preview subset + syntax highlighting for Kotlin/Python/JavaScript, highlight view read-only; **Not verified** on device) | Partial (same scope + syntax highlighting for JavaScript/Python/Kotlin via highlight-core; Windows behaviour **Not Tested**) | Tested reference (JSON/XML validate+format, YAML subset) |
-| Settings + recovery | Partially complete (theme, save location, clear recents/cache, privacy note; **Not verified** on device) | Complete for the listed scope (theme, save location, recents/cache, privacy note) | Settings store tested on Windows side (31/31 suite) |
-| Sheets | Partially complete (grid, formulas + - * / parens, A1 refs, SUM/AVERAGE, CSV load/save; XLSX not in app; **Not verified** on device) | Partially complete (same scope, sheet-core unit-tested; Windows behaviour **Not Tested**) | Tested reference (sheet_core: formulas, cycles, CSV round-trip, single-sheet/no-style XLSX; 69-test suite) |
-| Slides | Partially complete (deck add/delete/reorder, title/body, image per slide, present mode, HTML export without embedded images; **Not verified** on device) | Partially complete (same scope, HTML export embeds images as data URLs; Windows behaviour **Not Tested**) | Tested reference (slide_core: deck model + HTML export, escaping tested) |
-| PDF Studio | Partially complete (PdfRenderer view + best-effort text extract; merge/split **Not implemented**, disabled with reason; **Not verified** on device) | Partially complete (embed view + best-effort text extract via pdf-core, tested on synthetic PDFs; merge/split **Not implemented**, disabled; Windows behaviour **Not Tested**) | Tested reference (pdf_core: FlateDecode, Tj/TJ, best-effort only, no layout/font decoding) |
-| Media | Partially complete (image view, audio MediaPlayer, video VideoView; **Not verified** on device, no playback test) | Partially complete (image view, HTML audio/video playback; Windows behaviour **Not Tested**, no playback test) | Not implemented (no shared media engine; platform viewers only) |
-| E-books | Partially complete (EPUB plain-text chapters via java.util.zip, TXT fallback; no images/styles/DRM; **Not verified** on device) | Partially complete (EPUB plain-text chapters via epub-core, tested on synthetic EPUB; no images/styles/DRM; Windows behaviour **Not Tested**) | Tested reference (epub_core: container/OPF/spine, paragraph text) |
-| Archives | Partially complete (ZIP create/list/extract, traversal guard; RAR/7Z **Not implemented**) | Partially complete (ZIP create/list/extract via zip-core, tested round-trip; encrypted entries refused; RAR/7Z **Not implemented**; Windows behaviour **Not Tested**) | Tested reference: ZIP only (browse/extract/create + traversal, symlink, bomb guards; empty-dir fix in this pass). RAR/7Z: Not implemented |
-| Converter | Partially complete (CSV↔JSON, TXT→MD heuristic labelled, JSON pretty-print; other pairs show Not supported; **Not verified** on device) | Partially complete (same pairs via convert-core, unit-tested; Windows behaviour **Not Tested**) | Tested reference: TXT↔MD, JSON pretty/minify, CSV↔JSON, CSV↔MD table — now integrated into both apps for the pairs above |
-| Scan & OCR | Partially complete (camera/gallery capture + ML Kit on-device Latin OCR, editable result, save TXT; **Not verified** on device) | Partially complete (image pick + view only; OCR **Not implemented**, disabled with reason "no OCR engine bundled"; Windows behaviour **Not Tested**) | Not implemented (no shared OCR engine) |
+| File Manager | Partially complete (multi-select, sort/search, properties, favourites/recents, breadcrumbs, conflicts; cancellation Not implemented; **Not verified** on device) | Partially complete (same + copy progress; cancellation Not implemented; Windows behaviour **Not Tested**) | Tested reference (copy/move many, properties, conflicts, atomic write; 118-test suite) |
+| Writer / Text Editor | Partially complete (formatting toolbar, find/replace, undo/redo, save/Save As, draft recovery; tables/images/page layout/print Not implemented; **Not verified** on device) | Partially complete (same + Markdown toolbar, draft recovery; tables/images/page layout/print Not implemented; Windows behaviour **Not Tested**) | Tested reference (TXT/MD/JSON/XML/YAML-subset, Markdown subset, JSON tools) |
+| Code / Text Editor (syntax, JSON/MD tools) | Partially complete (highlight toggle, line numbers, find/replace, JSON validate/format, MD preview subset; **Not verified** on device) | Partially complete (highlight toggle, line numbers gutter, find/replace, indent/outdent, CRLF/BOM preserved; mixed endings save as LF, labelled; Windows behaviour **Not Tested**) | Tested reference (JSON/XML validate+format, YAML subset, tokenizer) |
+| Settings + recovery | Partially complete (theme applied, save location, clear recents/cache/favourites, privacy note; no central recovery screen; **Not verified** on device) | Partially complete (theme, save location, recents limit, cache, privacy note; no central recovery screen; Windows behaviour **Not Tested**) | Settings store tested on Windows side (41-test suite) |
+| Sheets | Partially complete (multi-sheet, formulas + - * / parens, A1 refs, SUM/AVERAGE/MIN/MAX/COUNT, per-cell errors, sort/filter, freeze header, CSV; charts/styles/copy-paste/fill/XLSX-in-app Not implemented; **Not verified** on device) | Partially complete (same + formula bar, formats, freeze row+column, column resize, workbook JSON save/open; charts/copy-paste/fill/XLSX Not implemented; Windows behaviour **Not Tested**) | Tested reference (sheet_core: formulas, cycles, multi-sheet Workbook, sort/filter, CSV round-trip, single-sheet/no-style XLSX; 118-test suite) |
+| Slides | Partially complete (add/duplicate/delete/reorder, title/body/image, notes, present mode, HTML export with embedded images; deck file save Not implemented — session only, export is persistence; **Not verified** on device) | Partially complete (same + deck JSON save/open; themes/layouts/shapes/PPTX Not implemented; Windows behaviour **Not Tested**) | Tested reference (slide_core: deck model + HTML export, notes, escaping tested) |
+| PDF Studio | Partially complete (view, thumbnails, search, zoom, view rotation, page PNG export; merge/split/page-ops/text-edit/annotations **Not implemented**, disabled with reason; **Not verified** on device) | Partially complete (embed view, extracted-text search, view zoom/rotate; merge/split/page-ops/text-edit/annotations **Not implemented**, disabled with reason; Windows behaviour **Not Tested**) | Tested reference (pdf_core: FlateDecode, Tj/TJ, best-effort only, no layout/font decoding; merge/split are stubs raising UNSUPPORTED_FORMAT) |
+| Media | Partially complete (image zoom/rotate, audio queue/seek/speed, video seek/fullscreen; subtitles/background audio Not implemented; **Not verified** on device) | Partially complete (image zoom/rotate, audio/video queue/seek/speed; crop/adjust/metadata/transcoding Not implemented; Windows behaviour **Not Tested**) | Not implemented (no shared media engine; platform viewers only) |
+| E-books | Partially complete (EPUB TOC, bookmarks, progress, text size, themes, search; plain-text only, no images/styles/DRM; MOBI/AZW Not implemented; **Not verified** on device) | Partially complete (same + NCX/nav TOC, progress resume; plain-text only, no images/styles/DRM; Windows behaviour **Not Tested**) | Tested reference (epub_core: container/OPF/spine, TOC, bookmarks, progress, search) |
+| Archives | Partially complete (browse before extract, extract all/selected, ZIP create, progress, conflicts, traversal guard; encrypted refused; RAR/7Z/TAR Not implemented) | Partially complete (same + per-entry checkboxes, extract selected, never silently overwrites; encrypted refused; RAR/7Z/TAR Not implemented; Windows behaviour **Not Tested**) | Tested reference: ZIP only (browse/extract/create + traversal, symlink, bomb guards, partial-path reporting). RAR/7Z/TAR: Not implemented |
+| Converter | Partially complete (CSV↔JSON, JSON→CSV, TXT→MD heuristic labelled, JSON pretty-print; history + clear; other pairs not offered; batch Not implemented; **Not verified** on device) | Partially complete (same pairs + history (20) + clear; other pairs not offered; batch Not implemented; Windows behaviour **Not Tested**) | Tested reference: TXT↔MD, JSON pretty/minify, CSV↔JSON, CSV↔MD table, closed dispatcher (every other pair raises UNSUPPORTED_FORMAT) |
+| Scan & OCR | Partially complete (multi-page capture, rotate/crop/reorder, ML Kit on-device Latin OCR, editable result, TXT export, image-only PDF export labelled as no text layer; **Not verified** on device) | Partially complete (image pick + view + zoom/rotate only; OCR **Not implemented**, disabled with reason "no OCR engine bundled"; Windows behaviour **Not Tested**) | Not implemented (no shared OCR engine) |
 
 ## Completion pass — 1 Nov 2026 (evidence)
 
@@ -126,12 +126,37 @@ as implementation evidence.
   lossy by design; CSV→JSON keeps everything as strings; content search
   is UTF-8 text only; copy cap 2 GiB, text read cap 50 MiB by default.
 
+## PDF-spec correction pass — 1 Nov 2026 (evidence)
+
+This pass was ordered after the user rejected the 12-module breadth build
+as useless/showcase ("mujhe app use leni hai, dikhawe ke liye nahi hai")
+and clarified the scope as the two PDFs, perfectly, for real use. Full
+per-module, per-platform checklist: `docs/PDF_SPEC_CHECKLIST.md`.
+
+- Windows: `npm test` in `apps/windows` → **41 pass, 0 fail** (was 31; +10 new
+  in `tests/depth.test.js`). No existing test modified.
+- Shared: `python3 -m unittest discover -s tests` → **118 run, 117 pass,
+  1 skipped** (pre-existing root skip; was 69 run, 68 pass, 1 skipped).
+  No existing test modified.
+- Android: new unit tests added (FormulaDetail, SheetUtils, SearchScanUtils,
+  DepthUtils) but **Not Tested locally** (local Gradle platform-blocked);
+  verified by CI only. Android UI behaviour on a device is **Not Tested**.
+- Secret scan: `scripts/secret-scan.sh` → CLEAN. No `LICENSE` file added
+  (project licence still NOT YET SELECTED, user decision pending).
+- Local-first holds: no web, no cloud, no account, no sync, no telemetry.
+  Windows shell remains Electron (Tauri evaluated and rejected for lack of
+  Rust/MSVC in this VM — see `apps/windows/DECISION.md`).
+- Every offered operation now works end-to-end for real, or is disabled
+  with a visible reason (PDF merge/split/page-ops, Windows OCR). No
+  decorative button is presented as a working feature.
+
 ## Overall product verdict
 
-**Not complete.** The delivered core is File Manager + text Writer/Editor +
-Settings on two platforms, with the Windows side unit-tested and
-Linux-smoke-verified, the Android side written but never compiled or run,
-and the shared engines tested as a reference only. Nine of the twelve
-Master-Instructions modules are Not implemented. No APK, no installer, no
-public repository, and no release exist yet. The deferred comprehensive
-testing list is in `FINAL_STATUS.md`.
+**Partially complete.** All 12 modules are reachable in both apps and their
+offered operations work end-to-end for real, with the Partial items in the
+table above (and in `docs/PDF_SPEC_CHECKLIST.md`) disabled or absent with
+reasons. The product must not be labelled "fully complete" while any major
+module remains Partial, while device/Windows-runtime testing is deferred
+(Master §13), while signing is debug/unsigned only, and while the project
+licence is not selected. The deferred comprehensive testing list is in
+`FINAL_STATUS.md` and in `docs/PDF_SPEC_CHECKLIST.md`.

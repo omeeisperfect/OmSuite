@@ -11,6 +11,20 @@ Formats actually implemented and tested here:
 
 NOT implemented: DOCX / XLSX / PPTX / PDF / EPUB (no verified engine here).
 
+Also in this module (added in the correction pass):
+- ``markdown_to_html``: a small SAFE subset — headings, paragraphs,
+  bold/italic, inline code, fenced code, lists, blockquotes, rules,
+  simple tables, links and images. Safety first: user text is HTML-
+  escaped BEFORE any markup is applied, so embedded ``<script>`` can
+  only ever render as visible text; links with dangerous schemes
+  (``javascript:``, ``data:``, ...) are rendered as plain text with a
+  warning. This is a preview renderer, not a full Markdown engine
+  (no nested lists, no reference links, no raw-HTML passthrough).
+- ``tokenize_code``: a display-only tokenizer (comments, strings,
+  numbers, keywords, identifiers, operators) plus ``tokens_to_html``
+  for safe preview rendering. It is a highlighter heuristic, NOT a
+  parser: it never executes code and it does not validate syntax.
+
 Preservation rules:
 - Encoding: UTF-8 (with or without BOM) is detected; anything else falls
   back to latin-1 ONLY for reading, and the detected encoding is reported
@@ -385,3 +399,263 @@ def preview_text(path: str | Path, *, max_chars: int = 10_000) -> str:
     if len(text) > max_chars:
         return text[:max_chars] + f"\n… [truncated, file has {len(text)} chars]"
     return text
+
+
+# ------------------------------------------------------- Markdown -> HTML ----
+
+DEFAULT_MAX_MD_CHARS = 1_000_000
+_SAFE_LINK_SCHEMES = {"http", "https", "mailto"}
+_UNSAFE_SCHEME_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9+.-]*):")
+
+
+def _safe_href(url: str) -> bool:
+    """True for relative / anchor / http(s) / mailto links. Any other
+    scheme (javascript:, data:, vbscript:, file:, ...) is unsafe in a
+    preview and must be rendered as plain text instead."""
+    match = _UNSAFE_SCHEME_RE.match(url)
+    if not match:
+        return True
+    return match.group(1).lower() in _SAFE_LINK_SCHEMES
+
+
+def _inline_html(chunk: str, warnings: list[str]) -> str:
+    """Inline Markdown inside ONE already-escaped chunk of text.
+
+    The chunk is escaped first (by the caller), so this function only
+    ever ADDS the known-safe tags below — it can never turn user input
+    into a script tag. Order matters: code spans first (their contents
+    must not be link/bold-processed), then images, links, bold, italic.
+    """
+    out = html.escape(chunk, quote=True)
+    # Code spans: `...` (content already escaped, kept verbatim).
+    out = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", out)
+    # Images: ![alt](url) — unsafe URLs become plain alt text.
+    # NOTE: the URL is captured from already-escaped text, so unescape
+    # it once before re-escaping — otherwise "&" would double-escape
+    # into "&amp;amp;" in the href.
+    def _image(match: re.Match) -> str:
+        alt, url = match.group(1), html.unescape(match.group(2))
+        if not _safe_href(url):
+            warnings.append(f"Unsafe image URL scheme dropped: {url[:40]!r}")
+            return alt
+        return (f'<img src="{html.escape(url, quote=True)}" '
+                f'alt="{alt}">')
+    # URL pattern allows ONE level of balanced parens, so a URL like
+    # javascript:alert(1) is captured whole (and refused whole) instead
+    # of being cut at the inner ")".
+    _url = r"\(([^()]*(?:\([^()]*\)[^()]*)*)\)"
+    out = re.sub(r"!\[([^\]]*)\]" + _url, _image, out)
+    # Links: [text](url) — unsafe URLs become plain text.
+    def _link(match: re.Match) -> str:
+        label, url = match.group(1), html.unescape(match.group(2))
+        if not _safe_href(url):
+            warnings.append(f"Unsafe link URL scheme dropped: {url[:40]!r}")
+            return label
+        return f'<a href="{html.escape(url, quote=True)}">{label}</a>'
+    out = re.sub(r"\[([^\]]*)\]" + _url, _link, out)
+    # Bold, then italic (word-guarded so snake_case is not mangled).
+    out = re.sub(r"(\*\*|__)(.+?)\1", r"<strong>\2</strong>", out)
+    out = re.sub(r"(?<!\w)(\*|_)([^*_]+?)\1(?!\w)", r"<em>\2</em>", out)
+    return out
+
+
+def _md_table_cells(line: str) -> list[str]:
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|") and not body.endswith("\\|"):
+        body = body[:-1]
+    return [c.strip().replace("\\|", "|")
+            for c in re.split(r"(?<!\\)\|", body)]
+
+
+def _is_separator_row(line: str) -> bool:
+    cells = _md_table_cells(line)
+    return bool(cells) and all(
+        re.fullmatch(r":?-{3,}:?", c) for c in cells)
+
+
+def markdown_to_html(text: str, *,
+                     max_chars: int = DEFAULT_MAX_MD_CHARS
+                     ) -> tuple[str, list[str]]:
+    """Render the safe Markdown subset to HTML. Returns ``(html,
+    warnings)``. Empty input renders as ``""``. Binary input (NUL) and
+    oversize input are errors, never silently rendered. Warnings cover
+    dropped unsafe URLs and unclosed code fences; nested lists,
+    reference links and raw HTML are NOT supported (raw HTML in the
+    input is escaped and shown as text — that is the safety rule, not
+    a bug)."""
+    if "\x00" in text:
+        raise MalformedInputError("Markdown input looks binary (NUL byte).")
+    if len(text) > max_chars:
+        raise OversizedInputError(
+            f"Markdown input {len(text)} chars exceeds limit {max_chars}")
+    warnings: list[str] = []
+    lines = text.splitlines()
+    blocks: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if not stripped:
+            i += 1
+            continue
+        if stripped.startswith("```"):
+            # Fenced code block (language tag ignored, content escaped).
+            fence_lines = []
+            i += 1
+            closed = False
+            while i < len(lines):
+                if lines[i].strip().startswith("```"):
+                    closed = True
+                    i += 1
+                    break
+                fence_lines.append(lines[i])
+                i += 1
+            if not closed:
+                warnings.append("Unclosed code fence: rest of document "
+                                "treated as code.")
+            code = html.escape("\n".join(fence_lines), quote=True)
+            blocks.append(f"<pre><code>{code}</code></pre>")
+            continue
+        heading = re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        if heading:
+            level = len(heading.group(1))
+            blocks.append(f"<h{level}>"
+                          f"{_inline_html(heading.group(2), warnings)}</h{level}>")
+            i += 1
+            continue
+        if re.fullmatch(r"(-{3,}|\*{3,}|_{3,})", stripped):
+            blocks.append("<hr>")
+            i += 1
+            continue
+        if stripped.startswith(">"):
+            quote_lines = []
+            while i < len(lines) and lines[i].strip().startswith(">"):
+                quote_lines.append(re.sub(r"^>\s?", "", lines[i].strip()))
+                i += 1
+            inner = "<br>".join(_inline_html(q, warnings)
+                                for q in quote_lines)
+            blocks.append(f"<blockquote>{inner}</blockquote>")
+            continue
+        list_match = re.match(r"^\s*([-*+]|\d+[.)])\s+(.*)$", line)
+        if list_match:
+            ordered = bool(re.match(r"\d+[.)]", list_match.group(1)))
+            tag = "ol" if ordered else "ul"
+            items = []
+            while i < len(lines):
+                m = re.match(r"^\s*([-*+]|\d+[.)])\s+(.*)$", lines[i])
+                if not m:
+                    break
+                if bool(re.match(r"\d+[.)]", m.group(1))) != ordered:
+                    break
+                items.append(_inline_html(m.group(2), warnings))
+                i += 1
+            blocks.append(f"<{tag}>" + "".join(f"<li>{it}</li>"
+                                               for it in items) + f"</{tag}>")
+            continue
+        if stripped.startswith("|"):
+            # Simple table: header row + separator row + body rows.
+            if i + 1 < len(lines) and _is_separator_row(lines[i + 1]):
+                header = _md_table_cells(line)
+                head = "".join(f"<th>{_inline_html(c, warnings)}</th>"
+                               for c in header)
+                rows = [f"<thead><tr>{head}</tr></thead>"]
+                i += 2
+                body_rows = []
+                while i < len(lines) and lines[i].strip().startswith("|"):
+                    cells = _md_table_cells(lines[i])
+                    if len(cells) < len(header):
+                        cells += [""] * (len(header) - len(cells))
+                    cells = cells[:len(header)]
+                    body_rows.append("<tr>" + "".join(
+                        f"<td>{_inline_html(c, warnings)}</td>"
+                        for c in cells) + "</tr>")
+                    i += 1
+                if body_rows:
+                    rows.append("<tbody>" + "".join(body_rows) + "</tbody>")
+                blocks.append("<table>" + "".join(rows) + "</table>")
+                continue
+            # A lone | line is not a table: fall through to paragraph.
+        # Plain paragraph: consecutive plain lines joined with spaces.
+        para_lines = []
+        while i < len(lines):
+            s = lines[i].strip()
+            if not s or s.startswith(("```", "#", ">", "|")) or \
+                    re.match(r"^\s*([-*+]|\d+[.)])\s+", lines[i]) or \
+                    re.fullmatch(r"(-{3,}|\*{3,}|_{3,})", s):
+                break
+            para_lines.append(s)
+            i += 1
+        blocks.append(f"<p>{_inline_html(' '.join(para_lines), warnings)}</p>")
+    return "\n".join(blocks), warnings
+
+
+# ---------------------------------------------------------- code tokens ----
+
+@dataclass
+class Token:
+    """One display token: ``kind`` is comment / string / number /
+    keyword / identifier / whitespace / operator / other."""
+    kind: str
+    text: str
+
+
+_CODE_KEYWORDS = {
+    # Python / JS / C-family union, for display highlighting only.
+    "and", "as", "assert", "async", "await", "break", "case", "catch",
+    "class", "const", "continue", "default", "def", "del", "delete", "do",
+    "elif", "else", "except", "export", "extends", "false", "finally",
+    "for", "from", "function", "global", "if", "import", "in",
+    "instanceof", "is", "lambda", "let", "new", "none", "nonlocal",
+    "not", "null", "or", "pass", "raise", "return", "super", "switch",
+    "this", "throw", "true", "try", "typeof", "var", "void", "while",
+    "with", "yield", "True", "False", "None",
+}
+
+_TOKEN_RE = re.compile(r"""
+    (?P<comment>\#[^\n]*|//[^\n]*)
+    | (?P<string>"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)
+    | (?P<number>\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)
+    | (?P<identifier>[A-Za-z_][A-Za-z0-9_]*)
+    | (?P<whitespace>\s+)
+    | (?P<operator>[+\-*/%=<>!&|^~?:;,.()\[\]{}]+)
+    | (?P<other>.)
+""", re.VERBOSE)
+
+DEFAULT_MAX_CODE_CHARS = 1_000_000
+
+
+def tokenize_code(text: str, *,
+                  max_chars: int = DEFAULT_MAX_CODE_CHARS) -> list[Token]:
+    """Split code text into display tokens. This is a highlighting
+    heuristic, NOT a parser: it does not validate syntax, understand
+    nesting, or execute anything. Empty input yields ``[]``; binary
+    (NUL) and oversize inputs are errors."""
+    if "\x00" in text:
+        raise MalformedInputError("Code input looks binary (NUL byte).")
+    if len(text) > max_chars:
+        raise OversizedInputError(
+            f"Code input {len(text)} chars exceeds limit {max_chars}")
+    tokens: list[Token] = []
+    for match in _TOKEN_RE.finditer(text):
+        kind = match.lastgroup or "other"
+        value = match.group()
+        if kind == "identifier" and value in _CODE_KEYWORDS:
+            kind = "keyword"
+        tokens.append(Token(kind=kind, text=value))
+    return tokens
+
+
+def tokens_to_html(tokens: list[Token]) -> str:
+    """Render tokens as safe HTML: text escaped, non-whitespace tokens
+    wrapped in ``<span class="tok-<kind>">``. Whitespace is left bare
+    so ``<pre>`` rendering preserves layout."""
+    parts = []
+    for token in tokens:
+        escaped = html.escape(token.text, quote=True)
+        if token.kind == "whitespace":
+            parts.append(escaped)
+        else:
+            parts.append(f'<span class="tok-{token.kind}">{escaped}</span>')
+    return "".join(parts)

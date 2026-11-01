@@ -53,7 +53,24 @@ Policies: `error` (default — refuse), `rename`, `overwrite`, `skip`.
 - `atomic_write(path, data, policy)`: temp file in the SAME directory,
   flush + fsync, then atomic replace. On failure the temp file is removed
   and the old file is untouched. Permission bits of a replaced file are
-  preserved where the platform allows.
+  preserved where the platform allows. Temp names carry a `.om_tmp_`
+  marker; `cleanup_temp_files(dir)` removes exactly those leftovers
+  (crash recovery) and never touches user hidden files.
+- `properties(path)`: real size (recursive total for directories,
+  symlinks not followed), recursive file/dir counts, read-only flag.
+  Read-only is decided from permission BITS, so it holds even for root.
+- `copy_many` / `move_many(pairs, policy, progress, confirm_overwrite,
+  continue_on_error)`: batch results distinguish ok / skipped / errors
+  (errors collected only with `continue_on_error=True`; otherwise the
+  first error raises and later items never run).
+- Overwrite-with-confirmation: `copy` / `move` / `rename` /
+  `atomic_write` accept `confirm_overwrite(path) -> bool`, consulted
+  ONLY for policy "overwrite" on an existing target; a decline behaves
+  as "skip" (nothing written, source not moved).
+- `search` accepts `extensions` / `min_size` / `max_size` filters;
+  `filter_entries` applies the same filters to any entry list.
+- Copying a directory that contains any symlink inside is refused
+  (a followed link could copy arbitrary disk content).
 
 ## 3. Archive operations (`archive_core`) — ZIP only
 
@@ -67,9 +84,22 @@ Policies: `error` (default — refuse), `rename`, `overwrite`, `skip`.
   512 MiB per entry, compression ratio 200:1.
 - `create(archive, sources, policy, progress?)`: directories stored
   recursively under their own name (`docs/a.txt`). Symlink sources refused.
+  Directories containing no files get an explicit dir entry (otherwise an
+  empty folder would vanish); directories with files need none.
 - `progress(done, total, name)` is called after each entry; an exception
   inside it aborts the operation.
-- RAR / 7Z: NOT in this contract (no verified engine). Any app claiming
+- Encrypted entries: refused with UNSUPPORTED_FORMAT (never skipped
+  silently). Non-ZIP formats (.rar / .7z / .tar / .gz by name with
+  non-ZIP bytes): refused with UNSUPPORTED_FORMAT on browse / extract /
+  create. A ZIP misnamed .rar still reads (magic bytes win on read).
+- Extraction writes each entry via temp file + replace, so a failed
+  entry (CRC, size, I/O) leaves an existing destination untouched; a
+  failure midway attaches `partial_paths` (files already written) to
+  the exception. Bytes actually written are counted against the size
+  limits (a lying header cannot smuggle a bomb). Extracted files get
+  mode 0644; entry permission bits are NOT restored. A nested ZIP is
+  extracted as an opaque file, never expanded recursively.
+- RAR / 7Z / TAR: NOT in this contract (no verified engine). Any app claiming
   them must add its own tested engine first.
 
 ## 4. Text / document operations (`text_core`)
@@ -91,6 +121,17 @@ Policies: `error` (default — refuse), `rename`, `overwrite`, `skip`.
   Explicitly rejected (error, never silent mis-parse): anchors, aliases,
   tags, multi-document files, block scalars (`|`, `>`), flow collections,
   duplicate keys, non-2-space indents.
+- Markdown -> HTML (`markdown_to_html`, preview only): headings,
+  paragraphs, bold/italic, inline + fenced code, lists, blockquotes,
+  rules, simple tables, links, images. Input is HTML-escaped BEFORE
+  markup is applied, so embedded `<script>` renders as text; links with
+  unsafe schemes (javascript:, data:, ...) render as plain text with a
+  warning. NOT supported: nested lists, reference links, raw-HTML
+  passthrough (by safety design, not omission).
+- Code tokenizer (`tokenize_code` / `tokens_to_html`): display-only
+  heuristic (comment / string / number / keyword / identifier /
+  operator / whitespace). It never parses or executes code. Binary
+  (NUL) and oversize inputs are errors; empty input yields `[]`.
 
 ## 5. Conversions (`convert_core`)
 
@@ -109,6 +150,14 @@ fidelity loss and MUST be shown to the user.
 
 NOT in this contract: DOCX / XLSX / PPTX / PDF / EPUB / image / audio /
 video conversion, OCR. Those need their own verified engines first.
+`convert(text, src_fmt, dst_fmt)` is the closed dispatcher: it routes
+only the pairs above and raises UNSUPPORTED_FORMAT naming the pair for
+anything else (including same-format pairs like txt->txt). It returns a
+`ConversionResult` (output + warnings + source_unchanged=True).
+`convert_file(src, dst, policy="error", history?)` reads the source,
+writes the destination atomically, refuses src == dst, and records a
+`ConversionHistory` entry when a history object is given (in-memory;
+apps persist it themselves).
 
 ## 6. Spreadsheets (`sheet_core`)
 
@@ -120,7 +169,19 @@ video conversion, OCR. Those need their own verified engines first.
   `SUM`/`AVERAGE` range is ignored; text in `+ - * /` is an error.
 - `recalculate()` returns `(values, errors)`: circular references
   (code `CYCLE`) and other formula errors are reported per cell, never
-  hang, never hide healthy cells.
+  hang, never hide healthy cells. `display_values()` substitutes
+  `#DIV/0!` / `#VALUE!` / `#REF!` / `#CYCLE!` for broken cells, and
+  `value_or_error(ref)` returns `(error_value, message)` — so a grid UI
+  never needs to catch exceptions to render a sheet. A reference outside
+  the grid (`A0`, `XFE1`, `A1048577`) is `#REF!`, never a silent 0.
+- `Workbook`: several named sheets in memory (add / get / rename /
+  remove, active sheet). CSV / XLSX helpers still operate on ONE sheet;
+  the workbook does not upgrade XLSX to multi-sheet.
+- `sort_rows(sheet, range, key_col, descending, header)`: in-place row
+  sort by computed key value (numbers before text, errors/empties last
+  in both directions); formulas move as text (references NOT rewritten).
+  `filter_rows(sheet, range, test)`: row numbers whose computed display
+  values pass `test` (broken formulas appear as `#...!` strings).
 - CSV: load stores cells as text (except `=` formulas); save writes a
   rectangular grid; booleans as TRUE/FALSE. Numbers reload as strings
   (formula coercion still computes them).
@@ -135,24 +196,45 @@ video conversion, OCR. Those need their own verified engines first.
   container / OPF / spine / chapter files are errors, never silent
   skips. Chapter text: tags stripped, paragraphs preserved, script /
   style content dropped. No EPUB writing, no DRM.
+- TOC: EPUB3 nav document (`properties="nav"`) first, EPUB2 NCX
+  `navMap` as fallback, else an empty list (a missing TOC is not an
+  error). Entries carry title, resolved href, fragment, nesting level.
+- Bookmarks / progress / search: `Bookmark` (chapter + paragraph +
+  note, dict round-trip for local storage), `book_progress(book,
+  chapter, paragraph)` as a 0.0–1.0 character fraction (clamped; the
+  last paragraph of the last chapter is exactly 1.0), `search_epub`
+  (paragraph hits with snippets, case-insensitive by default).
+- Encrypted / DRM books (`META-INF/encryption.xml`) and MOBI / AZW
+  files are refused with UNSUPPORTED_FORMAT, never mis-parsed.
 
 ## 8. PDF text, best-effort (`pdf_core`)
 
 - Content streams only; `FlateDecode` via zlib; `Tj` / `TJ` / `'` / `"`
   operators; literal + hex strings, common escapes, UTF-16BE BOM.
   `Td`/`TD`/`T*` insert a newline (best-effort line breaks).
+  Stream bodies are sliced by a direct `/Length` when it plausibly ends
+  at `endstream` (a compressed body can contain those bytes), else by
+  first-`endstream` scan; the stream dictionary is read from the segment
+  after the previous `endstream`, so binary `<<` bytes cannot steal the
+  `/Filter`. Each Flate stream is capped (default 50 MiB output);
+  over-cap streams are skipped, not expanded.
   NO layout reconstruction, NO font/`ToUnicode` decoding, NO object /
   xref streams, NO encryption, NO scanned-image text (OCR is separate).
+  NO text editing, NO page manipulation, NO merge, NO split:
+  `merge_pdfs` / `split_pdf` are stubs raising UNSUPPORTED_FORMAT.
   Empty result means "no decodable text found", not "PDF is empty".
 
 ## 9. Slides (`slide_core`)
 
-- Deck model: add / insert / delete / move slides (title, body,
-  optional image path). HTML export is one file with inline CSS and
-  escaped user text. Images embed as data URIs only when the file
-  exists, is png/jpg/gif/webp and is under the size cap; otherwise a
-  warning is returned and the image is referenced or dropped. No PPTX
-  import/export, no animations, no speaker notes.
+- Deck model: add / insert / delete / duplicate / move slides (title,
+  body, optional image path, speaker notes). `duplicate_slide` inserts
+  an independent copy right after the original. HTML export is one file
+  with inline CSS and escaped user text. Images embed as data URIs only
+  when the file exists, is png/jpg/gif/webp and is under the size cap;
+  otherwise a warning is returned and the image is referenced or dropped.
+  Speaker notes render only with `include_notes=True` (handout mode);
+  by default they are absent from the presentation. No PPTX
+  import/export, no animations.
 
 ## 10. Deliberately NOT shared
 

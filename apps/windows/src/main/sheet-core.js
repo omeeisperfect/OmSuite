@@ -87,21 +87,43 @@ function evaluateFormula(body, resolveRef, resolveRange) {
     if (tk.t === 'num') { next(); return tk.v; }
     if (tk.t === 'word') {
       next();
-      if (tk.v === 'SUM' || tk.v === 'AVERAGE') {
+      if (['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT'].includes(tk.v)) {
         if (peek().t !== '(') throw new Error(tk.v + ' needs (range)');
         next();
-        const start = next();
-        if (start.t !== 'word' || !parseRef(start.v)) throw new Error('Bad range start');
-        if (peek().t !== ':') throw new Error('Range needs :');
-        next();
-        const end = next();
-        if (end.t !== 'word' || !parseRef(end.v)) throw new Error('Bad range end');
+        const vals = [];
+        // Args are comma-separated; each arg is either a range (A1:B3) or a
+        // single expression (number / cell ref / nested expression).
+        while (true) {
+          const argStart = peek();
+          if (argStart.t === 'word' && parseRef(argStart.v)) {
+            const after = tokens[pos + 1];
+            if (after && after.t === ':') {
+              next(); // start ref
+              next(); // ':'
+              const end = next();
+              if (end.t !== 'word' || !parseRef(end.v)) throw new Error('Bad range end');
+              const rangeVals = resolveRange(argStart.v, end.v);
+              if (typeof rangeVals === 'string' && rangeVals.startsWith('#')) return rangeVals;
+              vals.push(...rangeVals);
+            } else {
+              vals.push(parseExpr());
+            }
+          } else {
+            vals.push(parseExpr());
+          }
+          if (peek().t === ',') { next(); continue; }
+          break;
+        }
         if (peek().t !== ')') throw new Error('Missing )');
         next();
-        const vals = resolveRange(start.v, end.v);
-        if (typeof vals === 'string' && vals.startsWith('#')) return vals;
-        if (tk.v === 'SUM') return vals.reduce((a, b) => a + b, 0);
-        return vals.length === 0 ? '#DIV/0!' : vals.reduce((a, b) => a + b, 0) / vals.length;
+        const nums = vals.filter((v) => typeof v === 'number');
+        const errVal = vals.find((v) => typeof v === 'string' && v.startsWith('#'));
+        if (errVal) return errVal;
+        if (tk.v === 'SUM') return nums.reduce((a, b) => a + b, 0);
+        if (tk.v === 'AVERAGE') return nums.length === 0 ? '#DIV/0!' : nums.reduce((a, b) => a + b, 0) / nums.length;
+        if (tk.v === 'COUNT') return nums.length;
+        if (tk.v === 'MIN') return nums.length === 0 ? 0 : Math.min(...nums);
+        if (tk.v === 'MAX') return nums.length === 0 ? 0 : Math.max(...nums);
       }
       // Plain cell ref.
       return resolveRef(tk.v);
@@ -223,4 +245,71 @@ function csvToGrid(text) {
   return rows;
 }
 
-module.exports = { colToIndex, indexToCol, parseRef, cellName, evaluateCell, computeGrid, formatValue, gridToCsv, csvToGrid };
+// Sort data rows (optionally keeping row 0 as a header) by one column.
+// Numeric-vs-numeric compares numerically, everything else by text.
+// Returns a NEW grid; the input is never mutated.
+function sortGridRows(grid, col, direction = 'asc', hasHeader = false) {
+  const rows = (grid || []).map((r) => [...(r || [])]);
+  if (rows.length === 0) return rows;
+  const dir = direction === 'desc' ? -1 : 1;
+  const head = hasHeader ? rows.shift() : null;
+  const cmpVal = (v) => {
+    const s = String(v ?? '').trim();
+    return s !== '' && Number.isFinite(Number(s)) ? { num: Number(s) } : { str: s };
+  };
+  rows.sort((a, b) => {
+    const x = cmpVal(a[col]);
+    const y = cmpVal(b[col]);
+    if (x.num !== undefined && y.num !== undefined) return (x.num - y.num) * dir;
+    return String(x.str ?? x.num ?? '').localeCompare(String(y.str ?? y.num ?? '')) * dir;
+  });
+  return head ? [head, ...rows] : rows;
+}
+
+// Indexes of rows whose cells contain the query (case-insensitive).
+function filterRowIndexes(grid, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return (grid || []).map((_, i) => i);
+  const out = [];
+  (grid || []).forEach((row, i) => {
+    if ((row || []).some((c) => String(c ?? '').toLowerCase().includes(q))) out.push(i);
+  });
+  return out;
+}
+
+function groupThousands(intPart) {
+  return String(intPart).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// Display formatting for a computed cell value. Formats: 'general',
+// 'number' (2 decimals), 'currency' ($ + grouping + 2 decimals),
+// 'percent' (value is a fraction: 0.25 -> 25%), 'date' (ISO date for a
+// parseable date string, otherwise unchanged). Non-numbers pass through
+// except for the date case.
+function formatCellValue(value, format) {
+  if (typeof value === 'string' && value.startsWith('#')) return value;
+  if (format === 'date') {
+    if (typeof value === 'string' && value.trim() !== '') {
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+    return formatValue(value);
+  }
+  if (typeof value !== 'number') return formatValue(value);
+  if (format === 'number') return value.toFixed(2);
+  if (format === 'currency') {
+    const sign = value < 0 ? '-' : '';
+    const abs = Math.abs(value);
+    const intPart = Math.floor(abs);
+    const frac = Math.round((abs - intPart) * 100);
+    return sign + '$' + groupThousands(intPart) + '.' + String(frac).padStart(2, '0');
+  }
+  if (format === 'percent') {
+    const pct = value * 100;
+    const rounded = Math.round(pct * 100) / 100;
+    return String(rounded) + '%';
+  }
+  return formatValue(value);
+}
+
+module.exports = { colToIndex, indexToCol, parseRef, cellName, evaluateCell, computeGrid, formatValue, gridToCsv, csvToGrid, sortGridRows, filterRowIndexes, formatCellValue };

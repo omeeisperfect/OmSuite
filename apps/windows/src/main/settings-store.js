@@ -71,6 +71,11 @@ class SettingsStore {
     const d = this.get();
     Object.assign(d, patch);
     if (patch.theme !== undefined && !['system', 'light', 'dark'].includes(d.theme)) d.theme = 'system';
+    if (patch.recentsMax !== undefined) {
+      const max = Number(d.recentsMax);
+      d.recentsMax = Number.isFinite(max) ? Math.max(0, Math.min(50, Math.floor(max))) : 20;
+      d.recents = d.recents.slice(0, d.recentsMax);
+    }
     this.save();
     return d;
   }

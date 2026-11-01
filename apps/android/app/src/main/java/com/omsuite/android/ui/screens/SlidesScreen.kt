@@ -1,6 +1,7 @@
 package com.omsuite.android.ui.screens
 
 import android.graphics.BitmapFactory
+import android.util.Base64
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,14 +28,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.documentfile.provider.DocumentFile
 import androidx.compose.ui.unit.dp
 import com.omsuite.android.OmSuiteApp
 import com.omsuite.android.util.DeckExport
 import com.omsuite.android.util.Slide
 import kotlinx.coroutines.launch
 
-/** A slide in the editor: content plus an optional SAF image Uri (stored as a string). */
-private data class EditSlide(val title: String, val body: String, val imageUri: String? = null)
+/** A slide in the editor: content, an optional SAF image Uri, and speaker notes. */
+private data class EditSlide(val title: String, val body: String, val imageUri: String? = null, val notes: String = "")
 
 @Composable
 fun SlidesScreen(app: OmSuiteApp) {
@@ -58,9 +60,33 @@ fun SlidesScreen(app: OmSuiteApp) {
         if (uri != null) {
             scope.launch {
                 try {
-                    val html = DeckExport.toHtml(slides.map { Slide(it.title, it.body) })
+                    // Embed each attached image as a base64 data URI so the single
+                    // HTML file really contains the images (no broken references).
+                    val imageUris = mutableMapOf<Int, String>()
+                    slides.forEachIndexed { index, slide ->
+                        val imageUri = slide.imageUri ?: return@forEachIndexed
+                        try {
+                            val bytes = context.contentResolver.openInputStream(Uri.parse(imageUri))?.use { it.readBytes() }
+                            if (bytes != null) {
+                                val name = DocumentFile.fromSingleUri(context, Uri.parse(imageUri))?.name ?: "image"
+                                val mime = com.omsuite.android.util.FileUtils.mimeFor(name).takeIf { it != "*/*" } ?: "image/png"
+                                imageUris[index] = "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                            }
+                        } catch (e: Exception) {
+                            // One unreadable image must not block the whole export.
+                            status = "Note: image on slide ${index + 1} could not be embedded (${e.message})."
+                        }
+                    }
+                    val notes = slides.mapIndexed { index, slide -> index to slide.notes }
+                        .filter { it.second.isNotBlank() }.toMap()
+                    val html = DeckExport.toHtml(
+                        slides.map { Slide(it.title, it.body) },
+                        imageDataUris = imageUris,
+                        notes = notes
+                    )
                     app.files.writeText(uri, html)
-                    status = "Exported ${slides.size} slide(s) to a single HTML file."
+                    status = "Exported ${slides.size} slide(s) to a single HTML file" +
+                        if (imageUris.isNotEmpty()) " with ${imageUris.size} embedded image(s)." else "."
                     error = null
                 } catch (e: Exception) { error = "Export failed: ${e.message}" }
             }
@@ -86,6 +112,14 @@ fun SlidesScreen(app: OmSuiteApp) {
                     bitmap?.let { Image(it.asImageBitmap(), "Slide image", Modifier.fillMaxWidth().padding(bottom = 16.dp)) }
                 }
                 Text(slide.body, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()))
+                if (slide.notes.isNotBlank()) {
+                    Text(
+                        "Speaker notes (presenter only): ${slide.notes}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                }
             }
             Row {
                 OutlinedButton(
@@ -125,6 +159,18 @@ fun SlidesScreen(app: OmSuiteApp) {
                 enabled = slides.isNotEmpty(),
                 modifier = Modifier.padding(start = 4.dp)
             ) { Text("Delete") }
+            OutlinedButton(
+                onClick = {
+                    if (slides.isNotEmpty()) {
+                        val copy = slides[selected]
+                        slides = slides.toMutableList().also { it.add(selected + 1, copy) }
+                        selected = selected + 1
+                        status = "Duplicated slide ${selected}."
+                    }
+                },
+                enabled = slides.isNotEmpty(),
+                modifier = Modifier.padding(start = 4.dp)
+            ) { Text("Duplicate") }
             OutlinedButton(
                 onClick = {
                     if (selected > 0) {
@@ -193,6 +239,14 @@ fun SlidesScreen(app: OmSuiteApp) {
                             label = { Text("Body text") },
                             modifier = Modifier.fillMaxWidth()
                         )
+                        OutlinedTextField(
+                            value = slide.notes,
+                            onValueChange = { next ->
+                                slides = slides.toMutableList().also { it[index] = it[index].copy(notes = next) }
+                            },
+                            label = { Text("Speaker notes (shown while presenting)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Row(Modifier.padding(top = 4.dp)) {
                             OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }) {
                                 Text(if (slide.imageUri == null) "Add image…" else "Change image…")
@@ -214,7 +268,7 @@ fun SlidesScreen(app: OmSuiteApp) {
             }
         }
         Text(
-            "Note: exported HTML contains titles and body text. Attached images are not embedded in the HTML file.",
+            "Note: exported HTML contains titles, body text, speaker notes, and attached images embedded as data URIs, so the single file stands alone.",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)
         )
     }

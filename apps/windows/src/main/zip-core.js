@@ -4,6 +4,7 @@
 // entries (flag bit 0) and multi-disk archives are refused, not guessed.
 
 const zlib = require('node:zlib');
+const path = require('node:path');
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -155,4 +156,37 @@ function extractZip(buffer) {
   return out;
 }
 
-module.exports = { crc32, createZip, listZip, readEntry, extractZip };
+// Safe extraction target inside destDir, or null when the entry escapes
+// (absolute path, drive-qualified path, or '..' that leaves the folder).
+// Backslashes are treated as separators so a Windows-style traversal
+// cannot slip through on either platform.
+function safeJoin(destDir, entryName) {
+  const raw = String(entryName || '');
+  if (raw === '') return null;
+  const normalized = raw.replace(/\\/g, '/');
+  if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) return null;
+  const dest = path.resolve(destDir);
+  const target = path.resolve(dest, normalized);
+  if (target !== dest && !target.startsWith(dest + path.sep)) return null;
+  return target;
+}
+
+// Extract only the named entries. Encrypted entries are refused with an
+// error (never silently skipped in a way the caller cannot report), and
+// traversal entries are refused. Directory entries in `names` are ignored.
+function extractSelected(buffer, names, destDir) {
+  const wanted = new Set(names || []);
+  const entries = listZip(buffer);
+  const out = [];
+  for (const e of entries) {
+    if (!wanted.has(e.name) || e.name.endsWith('/')) continue;
+    if (e.encrypted) throw new Error('Encrypted ZIP entry is not supported: ' + e.name);
+    if (destDir !== undefined && destDir !== null && safeJoin(destDir, e.name) === null) {
+      throw new Error('Refusing to extract an entry that escapes the folder: ' + e.name);
+    }
+    out.push({ name: e.name, data: readEntry(buffer, e) });
+  }
+  return out;
+}
+
+module.exports = { crc32, createZip, listZip, readEntry, extractZip, safeJoin, extractSelected };

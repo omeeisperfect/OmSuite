@@ -1,9 +1,54 @@
 # OmSuite — Known Limitations
 
-Date: 31 Oct 2026. Owner: stream 5. This file collects every limitation
-stated by the implementation streams plus the packaging/CI limits. If a
-limitation is not listed here, it is not "known" — it is unexamined, and
-belongs in the deferred-testing list in `FINAL_STATUS.md`, not assumed away.
+Date: 31 Oct 2026, with a PDF-spec correction-pass addendum dated 1 Nov 2026
+below. This file collects every limitation stated by the implementation
+streams plus the packaging/CI limits. If a limitation is not listed here,
+it is not "known" — it is unexamined, and belongs in the deferred-testing
+list in `FINAL_STATUS.md`, not assumed away.
+
+## PDF-spec correction pass — 1 Nov 2026 (supersedes the "nine modules Not implemented" claim)
+
+All 12 modules are now reachable in both apps, but every module remains
+**Partially complete** — see `docs/PDF_SPEC_CHECKLIST.md` for the exact
+per-module, per-platform list. Headline limits that survive this pass:
+
+- **PDF:** merge/split/page insert-delete-extract-reorder/rotate-in-file,
+  annotations, form filling, and PDF text editing are Not implemented on
+  both platforms (no PDF library vendored; controls disabled with reason).
+  Text extraction is best-effort only; scanned/encrypted/layout-accurate
+  PDFs are Not supported.
+- **Sheets:** formulas are `+ - * /`, parens, A1 refs, SUM/AVERAGE/MIN/MAX/
+  COUNT only; no charts, no copy/paste/fill; XLSX is not offered in the
+  apps (shared engine: single-sheet, no styles/dates/charts).
+- **Slides:** no themes/layouts/shapes, no PPTX import/export, no
+  animations; Android deck file save/load is Not implemented (session
+  only, HTML export is the persistence path, stated in UI).
+- **Media:** view/playback only; no crop/adjust/metadata editing, no
+  transcoding; Android background audio and subtitles Not implemented.
+- **E-books:** EPUB plain-text chapters only; no images/styles/DRM;
+  MOBI/AZW Not implemented (DRM never bypassed).
+- **Archives:** ZIP only; RAR/7Z/TAR Not implemented; encrypted ZIP
+  entries refused (no password support).
+- **Converter:** only CSV↔JSON, JSON pretty/minify, TXT→MD (heuristic),
+  CSV→MD-table (shared only); every other pair raises Not supported and
+  is not offered. No batch conversion.
+- **Scan & OCR:** Windows OCR Not implemented (no OCR engine bundled,
+  disabled with reason); Android OCR is ML Kit Latin only, no confidence
+  display, and its PDF export has no searchable text layer.
+- **Writer/Code:** tables, images, hyperlinks, page layout, headers/
+  footers, page numbers, print, and spell-check are Not implemented.
+  Windows mixed line endings save as LF (labelled in UI).
+- **File Manager:** cancellation of long operations and Trash/restore
+  are Not implemented; delete is permanent with confirmation.
+- **Settings/recovery:** no central recovery screen; recovery exists as
+  per-editor draft prompts only.
+- **Testing:** Android device UI and Windows runtime behaviour remain
+  **Not Tested** (deferred per Master §13). Signing remains debug
+  (Android) / unsigned (Windows). Project licence remains NOT SELECTED;
+  no LICENSE file exists.
+- **Windows build size:** the old 357 MB unpacked observation is stale;
+  the current installer size is whatever the latest release asset reports
+  (see release notes) — do not cite 357 MB for the current build.
 
 ## Product scope limits
 

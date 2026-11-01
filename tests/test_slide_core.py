@@ -77,5 +77,39 @@ class DeckTest(unittest.TestCase):
         self.assertNotIn("<section", html_text)
 
 
+class SlideCorrectionTest(unittest.TestCase):
+    """Correction pass (1 Nov 2026): duplicate slide, speaker notes.
+    Existing tests above are untouched."""
+
+    def test_duplicate_slide_is_independent_copy(self):
+        deck = sl.Deck()
+        deck.add_slide("One", "first", notes="n1")
+        deck.add_slide("Two", "second")
+        copy = deck.duplicate_slide(0)
+        self.assertEqual([s.title for s in deck.slides],
+                         ["One", "One", "Two"])
+        self.assertEqual(copy.notes, "n1")
+        copy.title = "Changed"
+        self.assertEqual(deck.slides[0].title, "One")  # original untouched
+        self.assertRaises(IndexError, deck.duplicate_slide, 5)
+
+    def test_notes_hidden_by_default_shown_and_escaped_with_flag(self):
+        deck = sl.Deck()
+        deck.add_slide("Talk", "body", notes="say <script>hi</script> & more")
+        html_text, _ = sl.export_html(deck)
+        self.assertNotIn("say", html_text)  # notes absent by default
+        html_text, _ = sl.export_html(deck, include_notes=True)
+        self.assertIn("say &lt;script&gt;hi&lt;/script&gt; &amp; more",
+                      html_text)
+        self.assertIn('class="notes"', html_text)
+
+    def test_clear_empties_deck(self):
+        deck = sl.Deck()
+        deck.add_slide("A", "a")
+        deck.add_slide("B", "b")
+        deck.clear()
+        self.assertEqual(len(deck), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -84,5 +84,39 @@ class PdfTest(unittest.TestCase):
             self.assertRaises(NotFoundError, pc.extract_text, Path(tmp) / "gone.pdf")
 
 
+class PdfCorrectionTest(unittest.TestCase):
+    """Correction pass (1 Nov 2026): Length slicing, nested-dict filter,
+    decompression cap, merge/split honesty. Existing tests untouched."""
+
+    def test_length_sliced_stream_survives_endstream_in_text(self):
+        # The body contains the literal word "endstream" inside a string;
+        # a naive first-endstream scan would truncate it. The declared
+        # /Length makes the slice exact.
+        body = b"BT (keep endstream here) Tj ET"
+        raw = (b"%PDF-1.4\n1 0 obj << /Length " + str(len(body)).encode() +
+               b" >>\nstream\n" + body + b"\nendstream endobj\n")
+        self.assertIn("keep endstream here",
+                      pc.extract_text_from_bytes(raw))
+
+    def test_nested_dict_does_not_steal_filter(self):
+        compressed = zlib.compress(b"BT (NestedDict) Tj ET")
+        raw = (b"%PDF-1.4\n1 0 obj << /Type /X /Desc << /A 1 >> "
+               b"/Length 0 /Filter /FlateDecode >>\nstream\n" +
+               compressed + b"\nendstream endobj\n")
+        self.assertIn("NestedDict", pc.extract_text_from_bytes(raw))
+
+    def test_decompression_cap_skips_stream(self):
+        compressed = zlib.compress(b"BT (TooBig) Tj ET")
+        raw = _pdf([(b"<< /Length 0 /Filter /FlateDecode >>", compressed)])
+        self.assertEqual(pc.extract_text_from_bytes(raw, max_stream_bytes=5),
+                         "")
+
+    def test_merge_and_split_raise_unsupported(self):
+        from errors import UnsupportedFormatError
+        self.assertRaises(UnsupportedFormatError, pc.merge_pdfs, "a.pdf",
+                          "b.pdf")
+        self.assertRaises(UnsupportedFormatError, pc.split_pdf, "a.pdf")
+
+
 if __name__ == "__main__":
     unittest.main()

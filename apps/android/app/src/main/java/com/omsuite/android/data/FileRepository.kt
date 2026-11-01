@@ -83,12 +83,22 @@ class FileRepository(private val context: Context) {
         return true
     }
 
-    suspend fun move(source: DocumentFile, destParent: DocumentFile): Boolean =
+    suspend fun move(source: DocumentFile, destParent: DocumentFile, newName: String? = null): Boolean =
         withContext(Dispatchers.IO) {
             // SAF has no atomic move: copy then delete source, verify copy first.
-            if (!copy(source, destParent)) return@withContext false
+            if (!copy(source, destParent, newName)) return@withContext false
             source.delete()
         }
+
+    /** Names of the direct children of [dir] (for conflict checks). */
+    suspend fun childNames(dir: DocumentFile): List<String> = withContext(Dispatchers.IO) {
+        dir.listFiles().mapNotNull { it.name }
+    }
+
+    /** Direct child of [dir] named [name], or null. */
+    suspend fun findChild(dir: DocumentFile, name: String): DocumentFile? = withContext(Dispatchers.IO) {
+        dir.findFile(name)
+    }
 
     suspend fun readText(uri: Uri): String = withContext(Dispatchers.IO) {
         context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
