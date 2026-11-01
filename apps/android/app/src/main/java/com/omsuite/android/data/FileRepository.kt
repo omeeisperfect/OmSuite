@@ -75,7 +75,7 @@ class FileRepository(private val context: Context) {
             true
         }
 
-    private fun copyDir(source: DocumentFile, destParent: DocumentFile, name: String): Boolean {
+    private suspend fun copyDir(source: DocumentFile, destParent: DocumentFile, name: String): Boolean {
         val dir = destParent.createDirectory(name) ?: return false
         for (child in source.listFiles()) {
             if (!copy(child, dir)) return false

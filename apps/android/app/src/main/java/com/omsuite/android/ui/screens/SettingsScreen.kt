@@ -79,7 +79,7 @@ fun SettingsScreen(app: OmSuiteApp) {
         Spacer(Modifier.height(8.dp))
         Button(onClick = {
             scope.launch {
-                val deleted = app.cacheDir.listFiles()?.sumOf { if (it.deleteRecursively()) 1 else 0 } ?: 0
+                val deleted = app.cacheDir.listFiles()?.count { it.deleteRecursively() } ?: 0
                 status = "Cache cleared ($deleted entr${if (deleted == 1) "y" else "ies"} removed)."
             }
         }) { Text("Clear app cache") }

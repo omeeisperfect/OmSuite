@@ -161,12 +161,13 @@ object JsonUtils {
     } catch (e: Exception) { false }
 
     /** Returns formatted JSON, or null when invalid. Input must be an object/array. */
-    fun formatJson(text: String): String? = try {
-        val trimmed = text.trim()
-        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null
-        val node = Parser(trimmed).parse()
-        buildString { render(node, 0, this) }
-    } catch (e: Exception) { null }
+    fun formatJson(text: String): String? {
+        return try {
+            val trimmed = text.trim()
+            if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) null
+            else buildString { render(Parser(trimmed).parse(), 0, this) }
+        } catch (e: Exception) { null }
+    }
 }
 
 /** Minimal, genuinely-implemented Markdown subset for preview:
