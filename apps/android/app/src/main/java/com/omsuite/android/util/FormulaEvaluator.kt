@@ -39,18 +39,6 @@ object FormulaEvaluator {
         return letters.reverse().toString() + (row + 1)
     }
 
-    /** Typed formula failure. Codes map to spreadsheet-style in-cell errors. */
-class FormulaError(val code: String) : IllegalArgumentException(code)
-
-/** Error code -> in-cell text shown by Sheets. */
-fun formulaErrorText(code: String): String = when (code) {
-    "DIV0" -> "#DIV/0!"
-    "CIRC" -> "#CIRC!"
-    "NAME" -> "#NAME?"
-    "REF" -> "#REF!"
-    "VALUE" -> "#VALUE!"
-    else -> "#ERR"
-}
     fun expandRange(start: String, end: String): List<String>? {
         val (c1, r1) = parseRef(start) ?: return null
         val (c2, r2) = parseRef(end) ?: return null
@@ -222,4 +210,17 @@ fun formulaErrorText(code: String): String = when (code) {
         }
     }
 
+}
+
+/** Typed formula failure. Codes map to spreadsheet-style in-cell errors. */
+class FormulaError(val code: String) : IllegalArgumentException(code)
+
+/** Error code -> in-cell text shown by Sheets. */
+fun formulaErrorText(code: String): String = when (code) {
+    "DIV0" -> "#DIV/0!"
+    "CIRC" -> "#CIRC!"
+    "NAME" -> "#NAME?"
+    "REF" -> "#REF!"
+    "VALUE" -> "#VALUE!"
+    else -> "#ERR"
 }

@@ -322,8 +322,6 @@ fun ArchiveScreen(app: OmSuiteApp) {
     }
 }
 
-private enum class ConflictPolicy { OVERWRITE, KEEP_BOTH, SKIP }
-
 private data class ConflictChoice(
     val dest: DocumentFile,
     val zip: Uri,

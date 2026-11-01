@@ -542,7 +542,7 @@ private fun FileRow(
 }
 
 
-private enum class ConflictPolicy { OVERWRITE, KEEP_BOTH, SKIP }
+enum class ConflictPolicy { OVERWRITE, KEEP_BOTH, SKIP }
 
 private data class ConflictDialogState(
     val dest: DocumentFile,

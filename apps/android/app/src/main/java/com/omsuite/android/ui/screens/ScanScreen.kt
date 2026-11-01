@@ -186,7 +186,7 @@ fun ScanScreen(app: OmSuiteApp) {
                             )
                             val drawWidth = (bmp.width * scale).toInt()
                             val drawHeight = (bmp.height * scale).toInt()
-                            val info = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, document.pages.size + 1).build()
+                            val info = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, document.pages.size + 1).create()
                             val page = document.startPage(info)
                             val left = (pageWidth - drawWidth) / 2
                             val top = (pageHeight - drawHeight) / 2
