@@ -73,7 +73,7 @@ object JsonUtils {
                     val token = s.substring(start, i)
                     if (token.isEmpty() || (token != "true" && token != "false" && token != "null" &&
                             !token.matches(Regex("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?"))
-                    ) throw IllegalArgumentException("Invalid token '$token'")
+                    )) throw IllegalArgumentException("Invalid token '$token'")
                     Raw(token)
                 }
             }

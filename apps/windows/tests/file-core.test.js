@@ -106,10 +106,12 @@ test('readTextFile refuses binary and oversize files', (t) => {
   assert.throws(() => fc.readTextFile(ok, 4), /too large/);
 });
 
-test('breadcrumbs: POSIX root and nested path', () => {
+test('breadcrumbs: root and nested path', () => {
   const crumbs = fc.breadcrumbs('/a/b/c');
-  assert.deepEqual(crumbs.map((c) => c.name), ['/', 'a', 'b', 'c']);
-  assert.equal(crumbs[crumbs.length - 1].path, '/a/b/c');
+  const resolved = path.resolve('/a/b/c');
+  const root = path.parse(resolved).root;
+  assert.deepEqual(crumbs.map((c) => c.name), [root, 'a', 'b', 'c']);
+  assert.equal(crumbs[crumbs.length - 1].path, resolved);
 });
 
 test('formatSize units', () => {
