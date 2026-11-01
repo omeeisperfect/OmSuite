@@ -34,7 +34,7 @@ import com.omsuite.android.util.Slide
 import kotlinx.coroutines.launch
 
 /** A slide in the editor: content plus an optional SAF image Uri (stored as a string). */
-private data class EditSlide(val title: String, val body: String, val imageUri: String?)
+private data class EditSlide(val title: String, val body: String, val imageUri: String? = null)
 
 @Composable
 fun SlidesScreen(app: OmSuiteApp) {
