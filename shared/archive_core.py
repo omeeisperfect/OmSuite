@@ -155,14 +155,17 @@ def extract(archive: str | Path, dest_dir: str | Path, *,
                                    max_entries=max_entries, max_total=max_total,
                                    max_file=max_file, max_ratio=max_ratio)
         wanted = None if selected is None else set(selected)
-        # Validate EVERYTHING up front.
+        # Validate EVERYTHING up front — including directory entries,
+        # so a traversal dir name cannot slip past the file checks.
         plan = []
+        dir_infos = []
         for info in infos:
-            if info.is_dir():
-                continue
             validate_entry_name(info.filename)
             if _is_symlink_entry(info):
                 raise UnsafePathError(f"Symlink entry refused: {info.filename!r}")
+            if info.is_dir():
+                dir_infos.append(info)
+                continue
             if wanted is not None and info.filename not in wanted:
                 continue
             plan.append(info)
@@ -171,6 +174,12 @@ def extract(archive: str | Path, dest_dir: str | Path, *,
             if missing:
                 raise NotFoundError(f"Selected entries not in archive: {sorted(missing)}")
         dest_dir.mkdir(parents=True, exist_ok=True)
+        if wanted is None:
+            # Explicit directory entries (e.g. empty dirs) are created;
+            # parents of files are created per file below regardless.
+            for info in dir_infos:
+                (dest_dir / PurePosixPath(info.filename.replace("\\", "/"))).mkdir(
+                    parents=True, exist_ok=True)
         written: list[Path] = []
         for idx, info in enumerate(plan, start=1):
             target = dest_dir / PurePosixPath(info.filename.replace("\\", "/"))

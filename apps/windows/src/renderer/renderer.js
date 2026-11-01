@@ -740,6 +740,397 @@
     else if (a.action === 'view-settings') { await switchView('settings'); renderSettings(); }
   });
 
+  // ---------- shared helper for new modules ----------
+  function b64ToBlobUrl(base64, mime) {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: mime || 'application/octet-stream' }));
+  }
+  function mimeFor(name) {
+    const ext = (name || '').split('.').pop().toLowerCase();
+    const map = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', pdf: 'application/pdf', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm', mkv: 'video/x-matroska' };
+    return map[ext] || 'application/octet-stream';
+  }
+
+  // ---------- sheets ----------
+  let shGrid = [];
+  let shComputed = [];
+  function shBlank(rows, cols) {
+    shGrid = [];
+    for (let r = 0; r < rows; r += 1) shGrid.push(new Array(cols).fill(''));
+  }
+  shBlank(20, 10);
+  function shColName(i) {
+    let s = '';
+    let n = i + 1;
+    while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+    return s;
+  }
+  async function shRecompute() {
+    try {
+      const res = await api.sheets.compute(shGrid);
+      if (res.ok) shComputed = res.value;
+    } catch (e) { /* keep last computed values */ }
+    renderSheet();
+  }
+  function renderSheet() {
+    const table = $('sh-grid');
+    table.innerHTML = '';
+    const cols = shGrid.length ? shGrid[0].length : 0;
+    const head = document.createElement('tr');
+    head.appendChild(document.createElement('th'));
+    for (let c = 0; c < cols; c += 1) { const th = document.createElement('th'); th.textContent = shColName(c); head.appendChild(th); }
+    table.appendChild(head);
+    shGrid.forEach((row, r) => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th'); th.textContent = String(r + 1); tr.appendChild(th);
+      row.forEach((raw, c) => {
+        const td = document.createElement('td');
+        const input = document.createElement('input');
+        input.type = 'text';
+        const comp = shComputed[r] && shComputed[r][c];
+        input.value = comp !== undefined && comp !== null ? String(comp) : raw;
+        input.title = 'Raw: ' + raw;
+        input.addEventListener('focus', () => { input.value = shGrid[r][c]; });
+        input.addEventListener('change', () => { shGrid[r][c] = input.value; });
+        input.addEventListener('blur', async () => { shGrid[r][c] = input.value; await shRecompute(); });
+        td.appendChild(input);
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+    $('sh-status').textContent = shGrid.length + ' rows × ' + cols + ' columns';
+  }
+  $('sh-new').addEventListener('click', () => { shBlank(20, 10); shComputed = []; renderSheet(); toast('New blank sheet (20 × 10).'); });
+  $('sh-add-row').addEventListener('click', () => { const cols = shGrid.length ? shGrid[0].length : 10; shGrid.push(new Array(cols).fill('')); renderSheet(); });
+  $('sh-add-col').addEventListener('click', () => { shGrid.forEach((row) => row.push('')); renderSheet(); });
+  $('sh-open').addEventListener('click', async () => {
+    const f = await call(api.dialogs.pickFile([{ name: 'CSV files', extensions: ['csv'] }, { name: 'All files', extensions: ['*'] }]), 'Open CSV');
+    if (!f) return;
+    try {
+      const out = await call(api.editor.read(f), 'Read CSV');
+      const res = await call(api.sheets.csvParse(out.text), 'Parse CSV');
+      shGrid = res.length ? res : [['']];
+      const cols = Math.max(...shGrid.map((r) => r.length));
+      shGrid = shGrid.map((r) => { while (r.length < cols) r.push(''); return r; });
+      await shRecompute();
+      toast('CSV opened: ' + f);
+    } catch (e) { /* already toasted */ }
+  });
+  $('sh-save').addEventListener('click', async () => {
+    try {
+      const csv = await call(api.sheets.csvStringify(shGrid), 'Build CSV');
+      const target = await call(api.dialogs.pickSaveGeneric(undefined, [{ name: 'CSV files', extensions: ['csv'] }, { name: 'All files', extensions: ['*'] }]), 'Save CSV');
+      if (!target) return;
+      await call(api.editor.write(target, csv), 'Save CSV');
+      toast('CSV saved: ' + target);
+    } catch (e) { /* already toasted */ }
+  });
+  renderSheet();
+
+  // ---------- slides ----------
+  let slSlides = [{ title: 'Title slide', body: 'Welcome to OmSuite Slides.', imagePath: null, imageDataUrl: null }];
+  let slIndex = 0;
+  let slPresentIndex = 0;
+  function slSaveEdit() {
+    if (!slSlides[slIndex]) return;
+    slSlides[slIndex].title = $('sl-title').value;
+    slSlides[slIndex].body = $('sl-body').value;
+  }
+  function renderSlides() {
+    const list = $('sl-list');
+    list.innerHTML = '';
+    slSlides.forEach((s, i) => {
+      const b = document.createElement('button');
+      b.textContent = (i + 1) + '. ' + (s.title || '(untitled)');
+      b.className = i === slIndex ? 'active' : '';
+      b.addEventListener('click', () => { slSaveEdit(); slIndex = i; renderSlides(); });
+      list.appendChild(b);
+    });
+    const cur = slSlides[slIndex];
+    if (cur) {
+      $('sl-title').value = cur.title;
+      $('sl-body').value = cur.body;
+      $('sl-image-name').textContent = cur.imagePath || 'No image';
+      $('sl-preview').innerHTML = '<h3>' + esc(cur.title) + '</h3><p>' + esc(cur.body).replace(/\n/g, '<br>') + '</p>' +
+        (cur.imageDataUrl ? '<img src="' + cur.imageDataUrl + '" alt="">' : '');
+    }
+  }
+  $('sl-title').addEventListener('input', () => { slSaveEdit(); renderSlides(); });
+  $('sl-body').addEventListener('input', () => { slSaveEdit(); renderSlides(); });
+  $('sl-add').addEventListener('click', () => { slSaveEdit(); slSlides.push({ title: 'New slide', body: '', imagePath: null, imageDataUrl: null }); slIndex = slSlides.length - 1; renderSlides(); });
+  $('sl-delete').addEventListener('click', () => {
+    if (slSlides.length <= 1) { toast('A deck needs at least one slide.', true); return; }
+    slSlides.splice(slIndex, 1);
+    slIndex = Math.min(slIndex, slSlides.length - 1);
+    renderSlides();
+  });
+  $('sl-up').addEventListener('click', () => { if (slIndex > 0) { slSaveEdit(); const t = slSlides[slIndex - 1]; slSlides[slIndex - 1] = slSlides[slIndex]; slSlides[slIndex] = t; slIndex -= 1; renderSlides(); } });
+  $('sl-down').addEventListener('click', () => { if (slIndex < slSlides.length - 1) { slSaveEdit(); const t = slSlides[slIndex + 1]; slSlides[slIndex + 1] = slSlides[slIndex]; slSlides[slIndex] = t; slIndex += 1; renderSlides(); } });
+  $('sl-pick-image').addEventListener('click', async () => {
+    const f = await call(api.dialogs.pickFile([{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }, { name: 'All files', extensions: ['*'] }]), 'Pick image');
+    if (!f) return;
+    try {
+      const out = await call(api.binary.readBase64(f), 'Read image');
+      slSaveEdit();
+      slSlides[slIndex].imagePath = f;
+      slSlides[slIndex].imageDataUrl = 'data:' + mimeFor(f) + ';base64,' + out.base64;
+      renderSlides();
+    } catch (e) { /* already toasted */ }
+  });
+  $('sl-clear-image').addEventListener('click', () => { slSaveEdit(); slSlides[slIndex].imagePath = null; slSlides[slIndex].imageDataUrl = null; renderSlides(); });
+  function slShowPresent() {
+    const s = slSlides[slPresentIndex];
+    $('sl-present-slide').innerHTML = '<h2>' + esc(s.title) + '</h2><p>' + esc(s.body).replace(/\n/g, '<br>') + '</p>' +
+      (s.imageDataUrl ? '<img src="' + s.imageDataUrl + '" alt="">' : '');
+    $('sl-present-pos').textContent = (slPresentIndex + 1) + ' / ' + slSlides.length;
+  }
+  function slExitPresent() {
+    $('sl-present-overlay').classList.add('hidden');
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+  $('sl-present').addEventListener('click', () => {
+    slSaveEdit();
+    slPresentIndex = slIndex;
+    $('sl-present-overlay').classList.remove('hidden');
+    slShowPresent();
+    $('sl-present-overlay').requestFullscreen().catch(() => { /* fullscreen is best-effort; overlay still pages */ });
+  });
+  $('sl-prev').addEventListener('click', () => { if (slPresentIndex > 0) { slPresentIndex -= 1; slShowPresent(); } });
+  $('sl-next').addEventListener('click', () => { if (slPresentIndex < slSlides.length - 1) { slPresentIndex += 1; slShowPresent(); } });
+  $('sl-exit').addEventListener('click', slExitPresent);
+  document.addEventListener('keydown', (e) => {
+    if ($('sl-present-overlay').classList.contains('hidden')) return;
+    if (e.key === 'Escape') slExitPresent();
+    else if (e.key === 'ArrowRight') $('sl-next').click();
+    else if (e.key === 'ArrowLeft') $('sl-prev').click();
+  });
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && !$('sl-present-overlay').classList.contains('hidden')) {
+      // User left fullscreen via browser chrome: keep the overlay until Exit,
+      // so paging state is not silently lost.
+    }
+  });
+  $('sl-export').addEventListener('click', async () => {
+    slSaveEdit();
+    const slidesHtml = slSlides.map((s) => '<section class="slide"><h1>' + esc(s.title) + '</h1><p>' + esc(s.body).replace(/\n/g, '<br>') + '</p>' +
+      (s.imageDataUrl ? '<img src="' + s.imageDataUrl + '" alt="">' : '') + '</section>').join('\n');
+    const html = '<!DOCTYPE html>\n<html><head><meta charset="UTF-8"><title>OmSuite Slides export</title><style>body{font-family:system-ui,sans-serif;margin:0}.slide{min-height:100vh;padding:48px;box-sizing:border-box;border-bottom:2px solid #ccc}.slide img{max-width:80%;max-height:50vh}</style></head><body>\n' + slidesHtml + '\n</body></html>\n';
+    const target = await call(api.dialogs.pickSaveGeneric(undefined, [{ name: 'HTML files', extensions: ['html'] }, { name: 'All files', extensions: ['*'] }]), 'Export slides');
+    if (!target) return;
+    try { await call(api.editor.write(target, html), 'Export slides'); toast('Slides exported: ' + target); } catch (e) { /* already toasted */ }
+  });
+  renderSlides();
+
+  // ---------- PDF studio ----------
+  let pdfPath = null;
+  $('pdf-open').addEventListener('click', async () => {
+    const f = await call(api.dialogs.pickFile([{ name: 'PDF files', extensions: ['pdf'] }, { name: 'All files', extensions: ['*'] }]), 'Open PDF');
+    if (!f) return;
+    try {
+      const info = await call(api.pdf.info(f), 'Read PDF');
+      pdfPath = f;
+      $('pdf-info').textContent = info.name + ' · ' + fmtSize(info.size) + ' · ' + info.pageCount + ' page(s) · ' + info.streams + ' stream(s), ' + info.inflated + ' inflated' + (info.note ? ' · Note: ' + info.note : '');
+      $('pdf-text').textContent = info.text || '(No extractable text found in this PDF. It may be image-only or use an unsupported encoding.)';
+      const data = await call(api.binary.readBase64(f), 'Read PDF for viewer');
+      $('pdf-embed').src = b64ToBlobUrl(data.base64, 'application/pdf');
+      $('pdf-embed').classList.remove('hidden');
+    } catch (e) { /* already toasted */ }
+  });
+  $('pdf-open-system').addEventListener('click', async () => {
+    if (!pdfPath) { toast('Open a PDF first.', true); return; }
+    await call(api.files.openPath(pdfPath), 'Open in system viewer');
+  });
+
+  // ---------- media ----------
+  async function mdOpen(kind) {
+    const filters = kind === 'image'
+      ? [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }]
+      : kind === 'audio'
+        ? [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'flac', 'm4a'] }]
+        : [{ name: 'Video', extensions: ['mp4', 'webm', 'mkv', 'mov'] }];
+    const f = await call(api.dialogs.pickFile([...filters, { name: 'All files', extensions: ['*'] }]), 'Open media');
+    if (!f) return;
+    try {
+      const out = await call(api.binary.readBase64(f), 'Read media');
+      const url = b64ToBlobUrl(out.base64, mimeFor(f));
+      $('md-img').classList.add('hidden'); $('md-audio').classList.add('hidden'); $('md-video').classList.add('hidden');
+      $('md-info').textContent = out.name + ' · ' + fmtSize(out.size);
+      if (kind === 'image') { $('md-img').src = url; $('md-img').classList.remove('hidden'); }
+      else if (kind === 'audio') { $('md-audio').src = url; $('md-audio').classList.remove('hidden'); }
+      else { $('md-video').src = url; $('md-video').classList.remove('hidden'); }
+    } catch (e) { /* already toasted */ }
+  }
+  $('md-open-image').addEventListener('click', () => mdOpen('image'));
+  $('md-open-audio').addEventListener('click', () => mdOpen('audio'));
+  $('md-open-video').addEventListener('click', () => mdOpen('video'));
+
+  // ---------- e-books ----------
+  let ebChapters = [];
+  let ebIndex = 0;
+  function ebShow() {
+    const list = $('eb-chapters');
+    list.innerHTML = '';
+    ebChapters.forEach((ch, i) => {
+      const b = document.createElement('button');
+      b.textContent = (i + 1) + '. ' + (ch.title || ch.path || ('Chapter ' + (i + 1)));
+      b.className = i === ebIndex ? 'active' : '';
+      b.addEventListener('click', () => { ebIndex = i; ebShow(); });
+      list.appendChild(b);
+    });
+    const cur = ebChapters[ebIndex];
+    $('eb-text').textContent = cur ? (cur.error ? 'Chapter could not be read: ' + cur.error : (cur.text || '(This chapter has no extractable text.)')) : '';
+  }
+  $('eb-open-epub').addEventListener('click', async () => {
+    const f = await call(api.dialogs.pickFile([{ name: 'EPUB files', extensions: ['epub'] }, { name: 'All files', extensions: ['*'] }]), 'Open EPUB');
+    if (!f) return;
+    try {
+      const book = await call(api.epub.read(f), 'Read EPUB');
+      ebChapters = book.chapters.map((ch) => ({ title: ch.path, path: ch.path, text: ch.text, error: ch.error }));
+      ebIndex = 0;
+      $('eb-meta').textContent = (book.title || 'Untitled') + (book.creator ? ' · by ' + book.creator : '') + ' · ' + ebChapters.length + ' chapter(s)';
+      ebShow();
+    } catch (e) { /* already toasted */ }
+  });
+  $('eb-open-txt').addEventListener('click', async () => {
+    const f = await call(api.dialogs.pickTextFile(), 'Open TXT');
+    if (!f) return;
+    try {
+      const out = await call(api.editor.read(f), 'Read text');
+      ebChapters = [{ title: f, path: f, text: out.text, error: null }];
+      ebIndex = 0;
+      $('eb-meta').textContent = 'Plain text: ' + f;
+      ebShow();
+    } catch (e) { /* already toasted */ }
+  });
+  $('eb-prev').addEventListener('click', () => { if (ebIndex > 0) { ebIndex -= 1; ebShow(); } });
+  $('eb-next').addEventListener('click', () => { if (ebIndex < ebChapters.length - 1) { ebIndex += 1; ebShow(); } });
+
+  // ---------- archives ----------
+  let arFiles = [];
+  let arZipPath = null;
+  $('ar-pick').addEventListener('click', async () => {
+    const files = await call(api.dialogs.pickFiles(), 'Pick files');
+    if (files && files.length) { arFiles = files; $('ar-info').textContent = arFiles.length + ' file(s) selected for a new ZIP: ' + arFiles.join(', '); }
+  });
+  $('ar-create').addEventListener('click', async () => {
+    if (!arFiles.length) { toast('Pick files first.', true); return; }
+    const target = await call(api.dialogs.pickSaveGeneric(undefined, [{ name: 'ZIP files', extensions: ['zip'] }, { name: 'All files', extensions: ['*'] }]), 'Create ZIP');
+    if (!target) return;
+    try {
+      const out = await call(api.archives.create(arFiles, target), 'Create ZIP');
+      arZipPath = out.path;
+      $('ar-info').textContent = 'Created ' + out.path + ' (' + out.entries + ' entries, ' + fmtSize(out.size) + ').';
+      toast('ZIP created.');
+    } catch (e) { /* already toasted */ }
+  });
+  $('ar-open-zip').addEventListener('click', async () => {
+    const f = await call(api.dialogs.pickFile([{ name: 'ZIP files', extensions: ['zip'] }, { name: 'All files', extensions: ['*'] }]), 'Open ZIP');
+    if (!f) return;
+    try {
+      const entries = await call(api.archives.list(f), 'List ZIP');
+      arZipPath = f;
+      const box = $('ar-entries');
+      box.innerHTML = '';
+      if (!entries.length) box.innerHTML = '<p class="muted">This ZIP has no entries.</p>';
+      entries.forEach((e) => {
+        const d = document.createElement('div');
+        d.textContent = e.name + ' · ' + fmtSize(e.size) + ' (compressed ' + fmtSize(e.compressedSize) + ')' + (e.encrypted ? ' · ENCRYPTED — cannot be extracted' : '');
+        box.appendChild(d);
+      });
+      $('ar-info').textContent = f + ' · ' + entries.length + ' entr(ies).';
+    } catch (e) { /* already toasted */ }
+  });
+  $('ar-extract').addEventListener('click', async () => {
+    if (!arZipPath) { toast('Open a ZIP first.', true); return; }
+    const dir = await call(api.dialogs.pickFolder(), 'Extract to folder');
+    if (!dir) return;
+    try {
+      const out = await call(api.archives.extract(arZipPath, dir), 'Extract ZIP');
+      toast('Extracted ' + out.entries + ' file(s) to ' + out.destDir);
+    } catch (e) { /* already toasted */ }
+  });
+
+  // ---------- converter ----------
+  $('cv-run').addEventListener('click', async () => {
+    const from = $('cv-from').value;
+    const to = $('cv-to').value;
+    const res = await api.convert.run(from, to, $('cv-in').value);
+    if (!res.ok) {
+      $('cv-out').value = 'Not supported: ' + from + ' → ' + to + (res.error && !res.error.startsWith('Not supported') ? ' (' + res.error + ')' : '');
+      toast('Not supported: ' + from + ' → ' + to, true);
+      return;
+    }
+    $('cv-out').value = res.value;
+  });
+  $('cv-save').addEventListener('click', async () => {
+    if (!$('cv-out').value) { toast('Nothing to save — convert something first.', true); return; }
+    const target = await call(api.dialogs.pickSaveGeneric(undefined, [{ name: 'All files', extensions: ['*'] }]), 'Save output');
+    if (!target) return;
+    try { await call(api.editor.write(target, $('cv-out').value), 'Save output'); toast('Saved: ' + target); } catch (e) { /* already toasted */ }
+  });
+
+  // ---------- scan & OCR ----------
+  $('sc-pick').addEventListener('click', async () => {
+    const f = await call(api.dialogs.pickFile([{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff'] }, { name: 'All files', extensions: ['*'] }]), 'Pick image');
+    if (!f) return;
+    try {
+      const out = await call(api.binary.readBase64(f), 'Read image');
+      $('sc-img').src = b64ToBlobUrl(out.base64, mimeFor(f));
+      $('sc-img').classList.remove('hidden');
+      $('sc-info').textContent = out.name + ' · ' + fmtSize(out.size) + ' · OCR is disabled (no OCR engine bundled).';
+    } catch (e) { /* already toasted */ }
+  });
+
+  // ---------- code editor with highlighting ----------
+  let cdPath = null;
+  let cdHighlightOn = false; // plain editing by default; toggle shows highlighted preview
+  async function cdRender() {
+    const text = $('cd-text').value;
+    if (!cdHighlightOn) { $('cd-preview').classList.add('hidden'); $('cd-text').classList.remove('hidden'); return; }
+    try {
+      const res = await api.highlight.render(text, $('cd-lang').value);
+      if (res.ok) {
+        $('cd-preview').innerHTML = res.value;
+        $('cd-preview').classList.remove('hidden');
+        $('cd-text').classList.add('hidden');
+      }
+    } catch (e) { /* preview failure leaves plain text visible */ }
+  }
+  let cdTimer = null;
+  $('cd-text').addEventListener('input', () => { if (cdTimer) clearTimeout(cdTimer); cdTimer = setTimeout(cdRender, 300); });
+  $('cd-lang').addEventListener('change', cdRender);
+  $('cd-toggle').addEventListener('click', async () => {
+    cdHighlightOn = !cdHighlightOn;
+    $('cd-toggle').textContent = cdHighlightOn ? '🎨 Highlight: ON' : '📄 Highlight: OFF';
+    if (!cdHighlightOn) { $('cd-preview').classList.add('hidden'); $('cd-text').classList.remove('hidden'); }
+    else await cdRender();
+  });
+  $('cd-open').addEventListener('click', async () => {
+    const f = await call(api.dialogs.pickFile([
+      { name: 'Code', extensions: ['js', 'ts', 'py', 'kt', 'kts', 'java', 'c', 'cpp', 'h', 'cs', 'html', 'css', 'json'] },
+      { name: 'All files', extensions: ['*'] },
+    ]), 'Open code file');
+    if (!f) return;
+    try {
+      const out = await call(api.editor.read(f), 'Read code file');
+      cdPath = f;
+      $('cd-text').value = out.text;
+      $('cd-path').textContent = f;
+      const ext = f.split('.').pop().toLowerCase();
+      if (ext === 'py') $('cd-lang').value = 'python';
+      else if (ext === 'kt' || ext === 'kts') $('cd-lang').value = 'kotlin';
+      else $('cd-lang').value = 'javascript';
+      await cdRender();
+    } catch (e) { /* already toasted */ }
+  });
+  $('cd-save').addEventListener('click', async () => {
+    if (!cdPath) { toast('Open a code file first, then save.', true); return; }
+    try { await call(api.editor.write(cdPath, $('cd-text').value), 'Save code'); toast('Saved.'); } catch (e) { /* already toasted */ }
+  });
+  cdRender();
+
   // ---------- init ----------
   (async function init() {
     try {

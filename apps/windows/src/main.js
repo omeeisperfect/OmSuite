@@ -12,6 +12,14 @@ const path = require('node:path');
 
 const fileCore = require('./main/file-core');
 const textCore = require('./main/text-core');
+const sheetCore = require('./main/sheet-core');
+const pdfCore = require('./main/pdf-core');
+const epubCore = require('./main/epub-core');
+const zipCore = require('./main/zip-core');
+const convertCore = require('./main/convert-core');
+const highlightCore = require('./main/highlight-core');
+
+const MAX_BINARY_BYTES = 200 * 1024 * 1024; // 200 MiB guard for media/PDF/EPUB reads
 const { SettingsStore } = require('./main/settings-store');
 
 const VERSION = '0.1.0';
@@ -115,6 +123,83 @@ function registerIpc() {
     return p;
   }));
   ipcMain.handle('editor:validate-json', wrap((text) => textCore.validateJson(text)));
+
+  // Generic pickers for the newer modules (filters are main-side, fixed lists).
+  ipcMain.handle('dialogs:pick-file', wrap(async (filters) => {
+    const r = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: Array.isArray(filters) && filters.length ? filters : [{ name: 'All files', extensions: ['*'] }],
+    });
+    return r.canceled ? null : r.filePaths[0] || null;
+  }));
+  ipcMain.handle('dialogs:pick-save-generic', wrap(async (defaultPath, filters) => {
+    const r = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: defaultPath || undefined,
+      filters: Array.isArray(filters) && filters.length ? filters : [{ name: 'All files', extensions: ['*'] }],
+    });
+    return r.canceled ? null : r.filePath || null;
+  }));
+  // Binary read as base64 (renderer turns it into a blob URL for <embed> /
+  // <img> / <audio> / <video>). Never exposes raw fs to the renderer.
+  ipcMain.handle('files:read-base64', wrap((p) => {
+    const st = fs.statSync(p);
+    if (!st.isFile()) throw new Error('Not a file: ' + p);
+    if (st.size > MAX_BINARY_BYTES) throw new Error('File is too large to open here (' + Math.round(st.size / 1048576) + ' MB; limit 200 MB).');
+    return { base64: fs.readFileSync(p).toString('base64'), size: st.size, name: path.basename(p) };
+  }));
+  ipcMain.handle('files:write-base64', wrap((p, base64) => {
+    fs.writeFileSync(p, Buffer.from(String(base64 || ''), 'base64'));
+    return p;
+  }));
+
+  ipcMain.handle('sheet:compute', wrap((grid) => sheetCore.computeGrid(grid)));
+  ipcMain.handle('sheet:csv-parse', wrap((text) => sheetCore.csvToGrid(text)));
+  ipcMain.handle('sheet:csv-stringify', wrap((grid) => sheetCore.gridToCsv(grid)));
+  ipcMain.handle('pdf:info', wrap((p) => {
+    const buf = fs.readFileSync(p);
+    const out = pdfCore.parsePdf(buf);
+    return { ...out, size: buf.length, name: path.basename(p) };
+  }));
+  ipcMain.handle('epub:read', wrap((p) => {
+    const buf = fs.readFileSync(p);
+    return epubCore.parseEpub(buf);
+  }));
+  ipcMain.handle('archives:list', wrap((p) => {
+    const buf = fs.readFileSync(p);
+    return zipCore.listZip(buf).map((e) => ({ name: e.name, method: e.method, size: e.size, compressedSize: e.compressedSize, encrypted: e.encrypted }));
+  }));
+  ipcMain.handle('archives:create', wrap((filePaths, outPath) => {
+    const entries = [];
+    for (const fp of filePaths) {
+      const st = fs.statSync(fp);
+      if (!st.isFile()) throw new Error('Only files can be added to a ZIP (not a folder): ' + fp);
+      entries.push({ name: path.basename(fp), data: fs.readFileSync(fp) });
+    }
+    if (entries.length === 0) throw new Error('No files selected.');
+    const buf = zipCore.createZip(entries);
+    fs.writeFileSync(outPath, buf);
+    return { path: outPath, entries: entries.length, size: buf.length };
+  }));
+  ipcMain.handle('archives:extract', wrap((zipPath, destDir) => {
+    const buf = fs.readFileSync(zipPath);
+    const entries = zipCore.extractZip(buf);
+    for (const e of entries) {
+      // Zip-slip guard: every entry must stay inside destDir.
+      const target = path.resolve(destDir, e.name);
+      if (target !== path.resolve(destDir) && !target.startsWith(path.resolve(destDir) + path.sep)) {
+        throw new Error('Refusing to extract an entry that escapes the folder: ' + e.name);
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, e.data);
+    }
+    return { destDir, entries: entries.length };
+  }));
+  ipcMain.handle('convert:run', wrap((from, to, text) => {
+    const r = convertCore.convert(from, to, text);
+    if (!r.ok) throw new Error(r.error);
+    return r.value;
+  }));
+  ipcMain.handle('highlight:render', wrap((text, language) => highlightCore.highlightHtml(text, language)));
 
   ipcMain.handle('settings:get', wrap(() => getStore().get()));
   ipcMain.handle('settings:set', wrap((patch) => getStore().set(patch)));

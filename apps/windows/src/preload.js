@@ -25,7 +25,27 @@ contextBridge.exposeInMainWorld('omsuite', {
     pickFiles: () => ipcRenderer.invoke('dialogs:pick-files'),
     pickTextFile: () => ipcRenderer.invoke('dialogs:pick-text-file'),
     pickSaveFile: (defaultPath, ext) => ipcRenderer.invoke('dialogs:pick-save-file', defaultPath, ext),
+    pickFile: (filters) => ipcRenderer.invoke('dialogs:pick-file', filters),
+    pickSaveGeneric: (defaultPath, filters) => ipcRenderer.invoke('dialogs:pick-save-generic', defaultPath, filters),
   },
+  binary: {
+    readBase64: (filePath) => ipcRenderer.invoke('files:read-base64', filePath),
+    writeBase64: (filePath, base64) => ipcRenderer.invoke('files:write-base64', filePath, base64),
+  },
+  sheets: {
+    compute: (grid) => ipcRenderer.invoke('sheet:compute', grid),
+    csvParse: (text) => ipcRenderer.invoke('sheet:csv-parse', text),
+    csvStringify: (grid) => ipcRenderer.invoke('sheet:csv-stringify', grid),
+  },
+  pdf: { info: (filePath) => ipcRenderer.invoke('pdf:info', filePath) },
+  epub: { read: (filePath) => ipcRenderer.invoke('epub:read', filePath) },
+  archives: {
+    list: (zipPath) => ipcRenderer.invoke('archives:list', zipPath),
+    create: (filePaths, outPath) => ipcRenderer.invoke('archives:create', filePaths, outPath),
+    extract: (zipPath, destDir) => ipcRenderer.invoke('archives:extract', zipPath, destDir),
+  },
+  convert: { run: (from, to, text) => ipcRenderer.invoke('convert:run', from, to, text) },
+  highlight: { render: (text, language) => ipcRenderer.invoke('highlight:render', text, language) },
   editor: {
     read: (filePath) => ipcRenderer.invoke('editor:read', filePath),
     write: (filePath, text) => ipcRenderer.invoke('editor:write', filePath, text),

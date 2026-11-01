@@ -16,6 +16,15 @@
       <button class="nav-btn active" data-view="home">🏠 Home</button>
       <button class="nav-btn" data-view="files">📁 Files</button>
       <button class="nav-btn" data-view="editor">📝 Editor</button>
+      <button class="nav-btn" data-view="sheets">📊 Sheets</button>
+      <button class="nav-btn" data-view="slides">📽️ Slides</button>
+      <button class="nav-btn" data-view="pdf">📕 PDF Studio</button>
+      <button class="nav-btn" data-view="media">🖼️ Media</button>
+      <button class="nav-btn" data-view="ebooks">📚 E-books</button>
+      <button class="nav-btn" data-view="archives">🗜️ Archives</button>
+      <button class="nav-btn" data-view="converter">🔄 Converter</button>
+      <button class="nav-btn" data-view="scan">🔍 Scan &amp; OCR</button>
+      <button class="nav-btn" data-view="code">💻 Code</button>
       <button class="nav-btn" data-view="settings">⚙️ Settings</button>
     </nav>
     <div id="side-favs">
@@ -111,6 +120,163 @@
       </div>
       <div id="ed-status" class="statusbar"></div>
       <p id="ed-json-status" class="hint"></p>
+    </section>
+
+    <!-- SHEETS -->
+    <section id="view-sheets" class="view">
+      <h2>Sheets</h2>
+      <div class="toolbar">
+        <button id="sh-new">New sheet</button>
+        <button id="sh-open">Open CSV…</button>
+        <button id="sh-save">💾 Save CSV…</button>
+        <button id="sh-add-row">＋ Row</button>
+        <button id="sh-add-col">＋ Column</button>
+        <span id="sh-status" class="statusbar"></span>
+      </div>
+      <p class="hint">Formulas start with <code>=</code> and support + − * / ( ) , cell refs like A1, and SUM / AVERAGE over ranges (e.g. <code>=SUM(A1:B3)</code>). Errors show as #DIV/0!, #REF!, #CIRC! or #VALUE!. Edit a cell, then click elsewhere to recalculate.</p>
+      <div id="sh-grid-wrap"><table id="sh-grid"></table></div>
+    </section>
+
+    <!-- SLIDES -->
+    <section id="view-slides" class="view">
+      <h2>Slides</h2>
+      <div class="toolbar">
+        <button id="sl-add">＋ Add slide</button>
+        <button id="sl-delete">Delete slide</button>
+        <button id="sl-up">↑ Move up</button>
+        <button id="sl-down">↓ Move down</button>
+        <button id="sl-present">▶ Present fullscreen</button>
+        <button id="sl-export">Export HTML…</button>
+      </div>
+      <div class="row2">
+        <div id="sl-list"></div>
+        <div id="sl-edit">
+          <label>Title<input id="sl-title" type="text" placeholder="Slide title"></label>
+          <label>Body<textarea id="sl-body" placeholder="Slide body text…"></textarea></label>
+          <div class="toolbar">
+            <button id="sl-pick-image">🖼️ Pick image…</button>
+            <button id="sl-clear-image">Remove image</button>
+            <span id="sl-image-name" class="muted"></span>
+          </div>
+          <div id="sl-preview" class="slide-preview"></div>
+        </div>
+      </div>
+      <div id="sl-present-overlay" class="hidden">
+        <div id="sl-present-slide"></div>
+        <div class="toolbar"><button id="sl-prev">← Prev</button><span id="sl-present-pos"></span><button id="sl-next">Next →</button><button id="sl-exit">✕ Exit</button></div>
+        <p class="hint">Tip: use ← / → keys, Esc to exit.</p>
+      </div>
+    </section>
+
+    <!-- PDF STUDIO -->
+    <section id="view-pdf" class="view">
+      <h2>PDF Studio</h2>
+      <div class="toolbar">
+        <button id="pdf-open">Open PDF…</button>
+        <button id="pdf-open-system">Open in system viewer</button>
+        <button id="pdf-merge" disabled title="Not implemented: no PDF library is vendored, so pages cannot be rewritten">Merge PDFs (not implemented)</button>
+        <button id="pdf-split" disabled title="Not implemented: no PDF library is vendored, so pages cannot be rewritten">Split PDF (not implemented)</button>
+      </div>
+      <p id="pdf-info" class="muted">No PDF opened yet.</p>
+      <p class="hint">Merge / Split are disabled: rewriting PDF pages needs a PDF library, and none is vendored in this local-only app. Info + text extraction below are real, best-effort results.</p>
+      <embed id="pdf-embed" type="application/pdf" class="hidden">
+      <h3>Extracted text (best-effort)</h3>
+      <pre id="pdf-text" class="pre-box"></pre>
+    </section>
+
+    <!-- MEDIA -->
+    <section id="view-media" class="view">
+      <h2>Media</h2>
+      <div class="toolbar">
+        <button id="md-open-image">🖼️ Open image…</button>
+        <button id="md-open-audio">🎵 Open audio…</button>
+        <button id="md-open-video">🎬 Open video…</button>
+      </div>
+      <p id="md-info" class="muted">No media opened yet. Files are played locally; nothing is uploaded.</p>
+      <img id="md-img" class="hidden media-el" alt="Picked image">
+      <audio id="md-audio" class="hidden media-el" controls></audio>
+      <video id="md-video" class="hidden media-el" controls></video>
+    </section>
+
+    <!-- E-BOOKS -->
+    <section id="view-ebooks" class="view">
+      <h2>E-books</h2>
+      <div class="toolbar">
+        <button id="eb-open-epub">📚 Open EPUB…</button>
+        <button id="eb-open-txt">📄 Open TXT…</button>
+        <button id="eb-prev">← Prev chapter</button>
+        <button id="eb-next">Next chapter →</button>
+      </div>
+      <p id="eb-meta" class="muted">No book opened yet.</p>
+      <div id="eb-chapters"></div>
+      <pre id="eb-text" class="pre-box"></pre>
+    </section>
+
+    <!-- ARCHIVES -->
+    <section id="view-archives" class="view">
+      <h2>Archives</h2>
+      <div class="toolbar">
+        <button id="ar-pick">Pick files…</button>
+        <button id="ar-create">Create ZIP…</button>
+        <button id="ar-open-zip">Open ZIP…</button>
+        <button id="ar-extract">Extract to folder…</button>
+      </div>
+      <p id="ar-info" class="muted">No archive opened yet.</p>
+      <div id="ar-entries"></div>
+      <p class="hint">ZIP only (stored + deflate). Encrypted entries are listed but cannot be extracted — no password support is bundled.</p>
+    </section>
+
+    <!-- CONVERTER -->
+    <section id="view-converter" class="view">
+      <h2>Converter</h2>
+      <div class="toolbar">
+        <select id="cv-from">
+          <option>CSV</option><option>JSON</option><option>TXT</option><option>PDF</option>
+        </select>
+        <span>→</span>
+        <select id="cv-to">
+          <option>JSON</option><option>CSV</option><option>Markdown</option><option>JSON (pretty)</option><option>TXT</option>
+        </select>
+        <button id="cv-run">Convert</button>
+        <button id="cv-save">Save output…</button>
+      </div>
+      <p id="cv-note" class="hint">Only real conversions are offered. Unsupported pairs show “Not supported” — no fake output is produced. TXT → Markdown is a heuristic (short standalone lines become headings).</p>
+      <div class="row2">
+        <textarea id="cv-in" placeholder="Paste input here…" spellcheck="false"></textarea>
+        <textarea id="cv-out" placeholder="Output appears here…" spellcheck="false" readonly></textarea>
+      </div>
+    </section>
+
+    <!-- SCAN & OCR -->
+    <section id="view-scan" class="view">
+      <h2>Scan &amp; OCR</h2>
+      <div class="toolbar">
+        <button id="sc-pick">🖼️ Pick image…</button>
+        <button id="sc-ocr" disabled title="No OCR engine bundled (would require a Tesseract binary)">Run OCR (disabled)</button>
+      </div>
+      <p class="hint">OCR is disabled: no OCR engine is bundled with this app (it would require a Tesseract binary). Image capture/pick and viewing below are real. No OCR text is ever invented.</p>
+      <p id="sc-info" class="muted">No image picked yet. A scanner is not bundled; pick an image file, or use your scanner's own app to save an image and pick it here.</p>
+      <img id="sc-img" class="hidden media-el" alt="Picked scan image">
+    </section>
+
+    <!-- CODE -->
+    <section id="view-code" class="view">
+      <h2>Code</h2>
+      <div class="toolbar">
+        <button id="cd-open">Open code file…</button>
+        <select id="cd-lang" title="Language">
+          <option value="javascript">JavaScript</option>
+          <option value="python">Python</option>
+          <option value="kotlin">Kotlin</option>
+        </select>
+        <button id="cd-toggle">📄 Highlight: OFF</button>
+        <button id="cd-save">💾 Save</button>
+      </div>
+      <p id="cd-path" class="muted">No code file opened yet. Type or open a file; highlighting covers keywords, strings, comments and numbers.</p>
+      <div id="cd-body">
+        <textarea id="cd-text" spellcheck="false" placeholder="// Type code here, or open a file…"></textarea>
+        <pre id="cd-preview" class="code-preview"></pre>
+      </div>
     </section>
 
     <!-- SETTINGS -->

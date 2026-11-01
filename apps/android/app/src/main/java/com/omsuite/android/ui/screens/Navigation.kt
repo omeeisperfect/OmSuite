@@ -25,6 +25,17 @@ object Routes {
     const val FILES = "files"
     const val EDITOR = "editor"
     const val SETTINGS = "settings"
+    const val SHEETS = "sheets"
+    const val SLIDES = "slides"
+    const val PDF = "pdf"
+    const val MEDIA = "media"
+    const val EBOOKS = "ebooks"
+    const val ARCHIVES = "archives"
+    const val CONVERTER = "converter"
+    const val SCAN = "scan"
+
+    /** All module destinations, for the Home grid. */
+    val MODULES = listOf(SHEETS, SLIDES, PDF, MEDIA, EBOOKS, ARCHIVES, CONVERTER, SCAN)
 }
 
 /** Session-only handoff for an editor target (a SAF Uri string). Avoids
@@ -39,15 +50,16 @@ object EditorLaunch {
 }
 
 /**
- * Only genuinely implemented destinations appear in the bottom bar.
- * Unimplemented modules (Sheets, Slides, PDF, Media, E-books, Archives,
- * Converter, Scan & OCR) are NOT listed here — see STATUS.md.
+ * Bottom bar keeps the four primary destinations; every module screen is
+ * reachable from the Home grid (and stays in the back stack, so Back
+ * returns to Home). No module is listed anywhere it is not implemented.
  */
 @Composable
 fun OmSuiteNav(app: OmSuiteApp) {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
+    // Module screens hide the bottom bar's selection (none of the four matches).
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -82,7 +94,8 @@ fun OmSuiteNav(app: OmSuiteApp) {
                     app = app,
                     onOpenFiles = { nav.navigate(Routes.FILES) },
                     onOpenEditor = { uri, name -> EditorLaunch.set(uri, name); nav.navigate(Routes.EDITOR) },
-                    onOpenSettings = { nav.navigate(Routes.SETTINGS) }
+                    onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                    onOpenModule = { route -> nav.navigate(route) }
                 )
             }
             composable(Routes.FILES) {
@@ -97,6 +110,14 @@ fun OmSuiteNav(app: OmSuiteApp) {
                 EditorScreen(app = app, initialUri = uri, initialName = name, onBack = { nav.popBackStack() })
             }
             composable(Routes.SETTINGS) { SettingsScreen(app = app) }
+            composable(Routes.SHEETS) { SheetsScreen(app = app) }
+            composable(Routes.SLIDES) { SlidesScreen(app = app) }
+            composable(Routes.PDF) { PdfScreen(app = app) }
+            composable(Routes.MEDIA) { MediaScreen() }
+            composable(Routes.EBOOKS) { EbookScreen(app = app) }
+            composable(Routes.ARCHIVES) { ArchiveScreen(app = app) }
+            composable(Routes.CONVERTER) { ConverterScreen(app = app) }
+            composable(Routes.SCAN) { ScanScreen(app = app) }
         }
     }
 }

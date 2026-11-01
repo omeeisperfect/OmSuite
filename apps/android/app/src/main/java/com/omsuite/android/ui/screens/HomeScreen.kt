@@ -36,7 +36,8 @@ fun HomeScreen(
     app: OmSuiteApp,
     onOpenFiles: () -> Unit,
     onOpenEditor: (String, String) -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenModule: (String) -> Unit = {}
 ) {
     val recents by app.db.recentDao().observeAll().collectAsState(initial = emptyList())
     val favourites by app.db.favouriteDao().observeAll().collectAsState(initial = emptyList())
@@ -51,6 +52,42 @@ fun HomeScreen(
                 OutlinedButton(onClick = onOpenFiles) { Text("Open files") }
             }
             Spacer(Modifier.height(24.dp))
+            Text("Modules", style = MaterialTheme.typography.titleMedium)
+            Text("Every module below is genuinely implemented and opens its own screen.", style = MaterialTheme.typography.bodySmall)
+        }
+        item {
+            // Two-column module grid, built from the same route list as Navigation.
+            val modules = listOf(
+                Triple(Routes.SHEETS, "Sheets", "Editable grid, formulas, CSV"),
+                Triple(Routes.SLIDES, "Slides", "Deck, present, HTML export"),
+                Triple(Routes.PDF, "PDF Studio", "View pages, extract text"),
+                Triple(Routes.MEDIA, "Media", "Images, audio, video"),
+                Triple(Routes.EBOOKS, "E-books", "EPUB chapters, TXT books"),
+                Triple(Routes.ARCHIVES, "Archives", "Create & extract ZIPs"),
+                Triple(Routes.CONVERTER, "Converter", "CSV ↔ JSON, TXT → MD"),
+                Triple(Routes.SCAN, "Scan & OCR", "Camera + on-device OCR")
+            )
+            Column {
+                modules.chunked(2).forEach { row ->
+                    Row(Modifier.fillMaxWidth()) {
+                        row.forEach { (route, title, subtitle) ->
+                            Card(
+                                modifier = Modifier.weight(1f).padding(4.dp).clickable { onOpenModule(route) }
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(title, style = MaterialTheme.typography.titleSmall)
+                                    Text(subtitle, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+        item {
+            Text("Favourites", style = MaterialTheme.typography.titleMedium)
             Text("Favourites", style = MaterialTheme.typography.titleMedium)
         }
         if (favourites.isEmpty()) {
@@ -105,7 +142,8 @@ fun HomeScreen(
             Spacer(Modifier.height(8.dp))
             Text(
                 "Local-first: no account, no cloud sync, no telemetry. " +
-                    "Sheets, Slides, PDF, Media, E-books, Archives, Converter and Scan & OCR are not yet implemented and are not listed as features.",
+                    "All twelve modules are now reachable from the Modules grid above. " +
+                    "PDF merge/split remain Not implemented (no PDF library vendored) and are shown disabled in PDF Studio.",
                 style = MaterialTheme.typography.bodySmall
             )
         }

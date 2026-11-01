@@ -21,16 +21,24 @@ as implementation evidence.
 |---|---|---|---|
 | File Manager | Partially complete (code complete, **Not verified** on device) | Complete for the listed scope (unit-tested; Windows behaviour **Not Tested**) | Tested reference (part of 36 tests: 35 pass, 1 skipped) |
 | Writer / Text Editor | Partially complete (code complete, **Not verified** on device) | Complete for the listed scope (unit-tested; Windows behaviour **Not Tested**) | Tested reference (TXT/MD/JSON/XML/YAML-subset) |
-| Code / Text Editor (syntax, JSON/MD tools) | Partial (text editing + JSON validate/format + MD preview subset; **no syntax highlighting**) | Partial (same scope; no syntax highlighting) | Tested reference (JSON/XML validate+format, YAML subset) |
-| Settings + recovery | Partially complete (theme, save location, clear recents/cache, privacy note; **Not verified** on device) | Complete for the listed scope (theme, save location, recents/cache, privacy note) | Settings store tested on Windows side (17/17) |
-| Sheets | Not implemented (not in UI) | Not implemented (not in UI) | Not implemented (no engine, no tests) |
-| Slides | Not implemented (not in UI) | Not implemented (not in UI) | Not implemented |
-| PDF Studio | Not implemented (not in UI) | Not implemented (not in UI) | Not implemented (no engine, no tests) |
-| Media | Not implemented (not in UI) | Not implemented (not in UI) | Not implemented |
-| E-books | Not implemented (not in UI) | Not implemented (not in UI) | Not implemented |
-| Archives | Not implemented (traversal guard exists; no extraction UI) | Not implemented (not in UI) | Tested reference: ZIP only (browse/extract/create + traversal, symlink, bomb guards). RAR/7Z: Not implemented |
-| Converter | Not implemented (not in UI) | Not implemented (not in UI) | Tested reference only: TXT↔MD, JSON pretty/minify, CSV↔JSON, CSV↔MD table — **not integrated into either app** |
-| Scan & OCR | Not implemented (not in UI) | Not implemented (not in UI) | Not implemented (on-device OCR direction decided by stream 1; no engine integrated) |
+| Code / Text Editor (syntax, JSON/MD tools) | Partial (text editing + JSON validate/format + MD preview subset + syntax highlighting for Kotlin/Python/JavaScript, highlight view read-only; **Not verified** on device) | Partial (same scope + syntax highlighting for JavaScript/Python/Kotlin via highlight-core; Windows behaviour **Not Tested**) | Tested reference (JSON/XML validate+format, YAML subset) |
+| Settings + recovery | Partially complete (theme, save location, clear recents/cache, privacy note; **Not verified** on device) | Complete for the listed scope (theme, save location, recents/cache, privacy note) | Settings store tested on Windows side (31/31 suite) |
+| Sheets | Partially complete (grid, formulas + - * / parens, A1 refs, SUM/AVERAGE, CSV load/save; XLSX not in app; **Not verified** on device) | Partially complete (same scope, sheet-core unit-tested; Windows behaviour **Not Tested**) | Tested reference (sheet_core: formulas, cycles, CSV round-trip, single-sheet/no-style XLSX; 69-test suite) |
+| Slides | Partially complete (deck add/delete/reorder, title/body, image per slide, present mode, HTML export without embedded images; **Not verified** on device) | Partially complete (same scope, HTML export embeds images as data URLs; Windows behaviour **Not Tested**) | Tested reference (slide_core: deck model + HTML export, escaping tested) |
+| PDF Studio | Partially complete (PdfRenderer view + best-effort text extract; merge/split **Not implemented**, disabled with reason; **Not verified** on device) | Partially complete (embed view + best-effort text extract via pdf-core, tested on synthetic PDFs; merge/split **Not implemented**, disabled; Windows behaviour **Not Tested**) | Tested reference (pdf_core: FlateDecode, Tj/TJ, best-effort only, no layout/font decoding) |
+| Media | Partially complete (image view, audio MediaPlayer, video VideoView; **Not verified** on device, no playback test) | Partially complete (image view, HTML audio/video playback; Windows behaviour **Not Tested**, no playback test) | Not implemented (no shared media engine; platform viewers only) |
+| E-books | Partially complete (EPUB plain-text chapters via java.util.zip, TXT fallback; no images/styles/DRM; **Not verified** on device) | Partially complete (EPUB plain-text chapters via epub-core, tested on synthetic EPUB; no images/styles/DRM; Windows behaviour **Not Tested**) | Tested reference (epub_core: container/OPF/spine, paragraph text) |
+| Archives | Partially complete (ZIP create/list/extract, traversal guard; RAR/7Z **Not implemented**) | Partially complete (ZIP create/list/extract via zip-core, tested round-trip; encrypted entries refused; RAR/7Z **Not implemented**; Windows behaviour **Not Tested**) | Tested reference: ZIP only (browse/extract/create + traversal, symlink, bomb guards; empty-dir fix in this pass). RAR/7Z: Not implemented |
+| Converter | Partially complete (CSV↔JSON, TXT→MD heuristic labelled, JSON pretty-print; other pairs show Not supported; **Not verified** on device) | Partially complete (same pairs via convert-core, unit-tested; Windows behaviour **Not Tested**) | Tested reference: TXT↔MD, JSON pretty/minify, CSV↔JSON, CSV↔MD table — now integrated into both apps for the pairs above |
+| Scan & OCR | Partially complete (camera/gallery capture + ML Kit on-device Latin OCR, editable result, save TXT; **Not verified** on device) | Partially complete (image pick + view only; OCR **Not implemented**, disabled with reason "no OCR engine bundled"; Windows behaviour **Not Tested**) | Not implemented (no shared OCR engine) |
+
+## Completion pass — 1 Nov 2026 (evidence)
+
+- Windows: `npm test` in `apps/windows` → **31 pass, 0 fail** (was 17; +14 new).
+- Shared: `python3 -m unittest discover -s tests` → **69 run, 68 pass, 1 skipped** (pre-existing root skip; was 36 run, 35 pass, 1 skipped).
+- Android: compile and unit tests **Not Tested locally** (local Gradle platform-blocked); verified by CI only (see CI section in the final report). Android UI behaviour on a device is **Not Tested**.
+- Project licence: still **NOT YET SELECTED**; no `LICENSE` file was added.
+- Local-first holds: no web, no cloud, no account, no sync, no telemetry in the new code (verified by grep for network/analytics calls; the only `http://` strings are OOXML XML namespace identifiers in sheet_core.py).
 
 ## Evidence behind each row
 

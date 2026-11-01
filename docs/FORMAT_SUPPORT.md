@@ -44,6 +44,45 @@ Formats: DOC, DOCX, ODT, RTF, TXT, XLS, XLSX, ODS, CSV, PPT, PPTX, ODP, PDF, JPG
 SVG, TIFF, HEIC, ZIP, RAR, 7Z, TAR, EPUB, MOBI, AZW, HTML, MHTML, MD, JSON, XML, YAML,
 PSD, AI, EML, MSG, VCF, ICS.
 
+## Completion pass — 1 Nov 2026: verified promotions (supersedes the table below ONLY for the cells listed here)
+
+Test evidence: Windows `npm test` 31/31; shared `unittest` 69 run / 68 pass / 1 skipped;
+Android unit tests exist but are CI-verified only (local Gradle blocked), and Android
+device behaviour is Not Tested — so Android cells below are Partial at most, never
+Supported on device evidence alone.
+
+- **TXT Open/Create/Edit → Supported (both platforms, UTF-8 plain text).** Writer/Editor
+  + text-core tests (Windows) and TextUtils tests (shared/Android).
+- **MD Open/Create/Edit → Partial (both platforms).** Markdown subset only (headings,
+  bold, italic, lists, code) per markdown tests; tables/footnotes Not verified.
+- **JSON Open/Create/Edit + Convert (pretty-print) → Supported (both platforms).**
+  validateJson/format tests (Windows, shared, Android JsonUtils).
+- **CSV Open/Create/Edit → Partial (both platforms).** Sheets grid + CSV load/save;
+  formulas limited to `+ - * /`, parens, A1 refs, SUM/AVERAGE (sheet-core / Sheet tests).
+  CSV→JSON and JSON→CSV Convert → Partial (round-trip tested, shared + apps).
+- **XLSX → Partial for the shared engine ONLY** (single worksheet, no styles/dates/
+  merged cells, formulas preserved and recomputed; sheet_core tests). App Sheets cells
+  for XLSX remain **Not verified** — the apps load/save CSV, not XLSX.
+- **PDF Open (view) → Partial (both platforms).** Android PdfRenderer view; Windows
+  embed view + best-effort text extract (pdf-core tests on synthetic PDFs). PDF
+  Create/Edit (merge/split/annotation) → **Not supported in this build** (no PDF library
+  vendored; buttons disabled with reason). PDF text extract is best-effort only
+  (no layout, font/ToUnicode, scanned-image, or encrypted-PDF support).
+- **ZIP Open (browse)/Create/Extract → Supported (both platforms, stored+deflate).**
+  zip-core / ZipUtils / archive_core round-trip tests, traversal guard tested.
+  Encrypted entries are refused, not extracted. Zip64, RAR, 7Z, TAR remain Not verified
+  (RAR Create remains Not supported per the licence reason in the table).
+- **EPUB Open → Partial (both platforms).** Plain-text chapter reading only (container/
+  OPF/spine, paragraph text; epub-core / EpubParser tests on synthetic EPUBs).
+  No images, styles, DRM, or EPUB Create/Edit.
+- **HTML Create → Partial (Slides export only).** Deck → single HTML file (slide_core
+  tests; Android export is text-only, Windows embeds images as data URLs).
+- **JPG/PNG/audio/video, MOBI/AZW, DOC/DOCX, XLS, ODS, PPT/PPTX, ODP, SVG/TIFF/HEIC,
+  PSD/AI, EML/MSG/VCF/ICS, ODT/RTF/XML/YAML → unchanged: Not verified** in this matrix.
+  Media playback and OCR have no executed playback/recognition test in this pass, so
+  they are NOT promoted here even though viewer/player/ML Kit UI exists in the apps.
+  All other cells in the table below remain as written.
+
 > Note on "Open" vs "Preview": the Master Instructions use Open/Preview as one column.
 > In this matrix, **Open** means read + display in the owning module (or a preview where
 > the module's scope is preview-only, stated in the notes). A format whose only honest

@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.omsuite.android.OmSuiteApp
 import com.omsuite.android.data.EditorDraft
 import com.omsuite.android.data.RecentFile
+import com.omsuite.android.util.CodeTokenizer
 import com.omsuite.android.util.FileUtils
 import com.omsuite.android.util.JsonUtils
 import com.omsuite.android.util.MarkdownParser
@@ -109,6 +110,8 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
     var error by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf<String?>(null) }
     var preview by remember { mutableStateOf(false) }
+    var codeHighlight by remember { mutableStateOf(false) }
+    var codeLang by remember { mutableStateOf(CodeTokenizer.Language.KOTLIN) }
     var showFind by remember { mutableStateOf(false) }
     var findText by remember { mutableStateOf("") }
     var replaceText by remember { mutableStateOf("") }
@@ -202,6 +205,21 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
             OutlinedButton(onClick = { undoStack.redo(text)?.let { text = it } }, enabled = undoStack.canRedo()) { Text("Redo") }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = codeHighlight, onCheckedChange = { codeHighlight = it })
+            Text("Code highlight")
+            Spacer(Modifier.padding(4.dp))
+            CodeTokenizer.Language.entries.forEach { lang ->
+                OutlinedButton(
+                    onClick = { codeLang = lang },
+                    modifier = Modifier.padding(end = 2.dp)
+                ) { Text(if (codeLang == lang) "● ${lang.name.lowercase().replaceFirstChar { it.uppercase() }}" else lang.name.lowercase().replaceFirstChar { it.uppercase() }) }
+            }
+        }
+        Text(
+            "Code highlight is a read-only view (keywords, strings, comments, numbers for Kotlin, Python and JavaScript). Switch it off to edit again.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = preview, onCheckedChange = { preview = it })
             Text("Markdown preview")
             Spacer(Modifier.padding(8.dp))
@@ -258,6 +276,15 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 12.dp)
                 )
             }
+        } else if (codeHighlight) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                Text(
+                    highlightCode(text, codeLang),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(4.dp)
+                )
+            }
         } else {
             OutlinedTextField(
                 value = text,
@@ -297,3 +324,24 @@ fun EditorScreen(app: OmSuiteApp, initialUri: String?, initialName: String, onBa
     }
 }
 
+
+/** Map tokenizer kinds to theme colours for the read-only highlight view. */
+@Composable
+private fun highlightCode(text: String, lang: CodeTokenizer.Language): AnnotatedString {
+    val colors = MaterialTheme.colorScheme
+    val keyword = colors.primary
+    val string = colors.tertiary
+    val comment = colors.outline
+    val number = colors.secondary
+    return buildAnnotatedString {
+        for (token in CodeTokenizer.tokenize(text, lang)) {
+            when (token.kind) {
+                CodeTokenizer.Kind.KEYWORD -> withStyle(SpanStyle(color = keyword, fontWeight = FontWeight.Bold)) { append(token.text) }
+                CodeTokenizer.Kind.STRING -> withStyle(SpanStyle(color = string)) { append(token.text) }
+                CodeTokenizer.Kind.COMMENT -> withStyle(SpanStyle(color = comment, fontStyle = FontStyle.Italic)) { append(token.text) }
+                CodeTokenizer.Kind.NUMBER -> withStyle(SpanStyle(color = number)) { append(token.text) }
+                CodeTokenizer.Kind.PLAIN -> append(token.text)
+            }
+        }
+    }
+}

@@ -120,5 +120,46 @@ class ArchiveTest(unittest.TestCase):
         self.assertRaises(UnsafePathError, ac.create, self.root / "o2.zip", [link])
 
 
+class ArchiveExtraTest(unittest.TestCase):
+    """Added 1 Nov 2026: binary round-trip, deep nesting, explicit
+    directory entries — gaps in the original coverage, no change to
+    existing tests above."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_binary_and_deep_nesting_roundtrip(self):
+        src = self.root / "pkg"
+        deep = src / "a" / "b" / "c" / "d"
+        deep.mkdir(parents=True)
+        blob = bytes(range(256)) * 4  # every byte value, incl. NUL
+        (deep / "blob.bin").write_bytes(blob)
+        (src / "notes.txt").write_text("plain")
+        archive = ac.create(self.root / "pkg.zip", [src])
+        dest = self.root / "out"
+        ac.extract(archive, dest)
+        self.assertEqual((dest / "pkg" / "a" / "b" / "c" / "d" / "blob.bin").read_bytes(), blob)
+        self.assertEqual((dest / "pkg" / "notes.txt").read_text(), "plain")
+
+    def test_explicit_empty_dir_created_and_traversal_dir_rejected(self):
+        p = self.root / "dirs.zip"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr(zipfile.ZipInfo("empty/"), b"")
+            zf.writestr("empty/keep.txt", b"K")
+        dest = self.root / "d1"
+        ac.extract(p, dest)
+        self.assertTrue((dest / "empty").is_dir())
+        self.assertEqual((dest / "empty" / "keep.txt").read_text(), "K")
+        bad = self.root / "baddir.zip"
+        with zipfile.ZipFile(bad, "w") as zf:
+            zf.writestr(zipfile.ZipInfo("../evil/"), b"")
+        self.assertRaises(UnsafePathError, ac.extract, bad, self.root / "d2")
+        self.assertFalse((self.root / "evil").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -110,7 +110,51 @@ fidelity loss and MUST be shown to the user.
 NOT in this contract: DOCX / XLSX / PPTX / PDF / EPUB / image / audio /
 video conversion, OCR. Those need their own verified engines first.
 
-## 6. Deliberately NOT shared
+## 6. Spreadsheets (`sheet_core`)
+
+- Addressing: A1 notation, columns A..XFD, rows 1..1048576. Values are
+  numbers, booleans, text, or formulas (text starting with `=`).
+- Formulas: `+ - * /`, parentheses, unary minus, cell refs, `SUM` and
+  `AVERAGE` over ranges (`A1:A5`). No other functions, no string
+  literals in formulas. Empty cells read as 0 in formulas; text in a
+  `SUM`/`AVERAGE` range is ignored; text in `+ - * /` is an error.
+- `recalculate()` returns `(values, errors)`: circular references
+  (code `CYCLE`) and other formula errors are reported per cell, never
+  hang, never hide healthy cells.
+- CSV: load stores cells as text (except `=` formulas); save writes a
+  rectangular grid; booleans as TRUE/FALSE. Numbers reload as strings
+  (formula coercion still computes them).
+- XLSX: single worksheet only, no styles/dates/merged cells; formulas
+  preserved as text and recomputed; other producers' cached values are
+  ignored on read.
+
+## 7. EPUB reading (`epub_core`)
+
+- Follow `META-INF/container.xml` to the OPF, read manifest + spine in
+  order; non-linear spine items are skipped and reported. Missing
+  container / OPF / spine / chapter files are errors, never silent
+  skips. Chapter text: tags stripped, paragraphs preserved, script /
+  style content dropped. No EPUB writing, no DRM.
+
+## 8. PDF text, best-effort (`pdf_core`)
+
+- Content streams only; `FlateDecode` via zlib; `Tj` / `TJ` / `'` / `"`
+  operators; literal + hex strings, common escapes, UTF-16BE BOM.
+  `Td`/`TD`/`T*` insert a newline (best-effort line breaks).
+  NO layout reconstruction, NO font/`ToUnicode` decoding, NO object /
+  xref streams, NO encryption, NO scanned-image text (OCR is separate).
+  Empty result means "no decodable text found", not "PDF is empty".
+
+## 9. Slides (`slide_core`)
+
+- Deck model: add / insert / delete / move slides (title, body,
+  optional image path). HTML export is one file with inline CSS and
+  escaped user text. Images embed as data URIs only when the file
+  exists, is png/jpg/gif/webp and is under the size cap; otherwise a
+  warning is returned and the image is referenced or dropped. No PPTX
+  import/export, no animations, no speaker notes.
+
+## 10. Deliberately NOT shared
 
 Permission models differ too much to share safely, so these stay
 platform-native (see README.md §3): Android SAF document access and

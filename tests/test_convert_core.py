@@ -74,5 +74,33 @@ class ConvertTest(unittest.TestCase):
                           "| a |\n| not a separator |\n| 1 |\n")
 
 
+class ConvertExtraTest(unittest.TestCase):
+    """Added 1 Nov 2026: CSV<->JSON and JSON pretty-print already exist
+    in convert_core (csv_to_json / json_to_csv / json_pretty); these
+    tests pin the harder round-trips rather than re-implementing them."""
+
+    def test_csv_json_roundtrip_hard_cells(self):
+        csv_text = ('name,note,empty\n'
+                    '"ada, a","has ""quotes"" and, commas",\n'
+                    'béla,"multi\nline",x\n')
+        js, warnings = cc.csv_to_json(csv_text)
+        self.assertEqual(warnings, [])
+        back, warnings = cc.json_to_csv(js)
+        self.assertEqual(back, csv_text)
+
+    def test_json_pretty_options_and_roundtrip(self):
+        pretty, _ = cc.json_pretty('{"b": [1, 2], "a": {"x": "é"}}', indent=4)
+        self.assertIn('    "b"', pretty)
+        mini, _ = cc.json_minify(pretty)
+        self.assertEqual(mini, '{"b":[1,2],"a":{"x":"é"}}')
+        pretty2, _ = cc.json_pretty(mini, indent=4)
+        self.assertEqual(pretty2, pretty)
+
+    def test_csv_derived_json_pretty_prints(self):
+        js, _ = cc.csv_to_json("code\n007\n")
+        pretty, _ = cc.json_pretty(js)
+        self.assertIn('"007"', pretty)  # still a string after pretty-print
+
+
 if __name__ == "__main__":
     unittest.main()

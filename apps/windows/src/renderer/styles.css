@@ -69,6 +69,39 @@ fieldset .row input[type="text"] { flex: 1; }
 #modal { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; width: 480px; max-width: 90vw; }
 #modal input[type="text"] { width: 100%; margin-top: 8px; }
 #modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+/* New modules (Sheets / Slides / PDF / Media / E-books / Archives / Converter / Scan / Code) */
+#sh-grid-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+#sh-grid { border-collapse: collapse; }
+#sh-grid th { background: var(--surface2); padding: 4px 8px; border: 1px solid var(--border); font-size: 12px; }
+#sh-grid td { border: 1px solid var(--border); padding: 0; }
+#sh-grid td input { border: none; background: var(--input-bg); padding: 6px; width: 130px; }
+.row2 { display: flex; gap: 16px; align-items: flex-start; }
+#sl-list { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+#sl-list button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+#sl-edit { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+#sl-edit label { display: flex; flex-direction: column; gap: 4px; }
+#sl-edit input[type="text"], #sl-body { background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+#sl-body { min-height: 120px; resize: vertical; }
+.slide-preview { border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--surface); min-height: 160px; }
+.slide-preview img, #sl-present-slide img { max-width: 100%; max-height: 40vh; }
+#sl-present-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 80; padding: 40px; overflow-y: auto; }
+#sl-present-slide { text-align: center; }
+#sl-present-slide h2 { font-size: 36px; }
+#sl-present-slide p { font-size: 20px; }
+.pre-box { white-space: pre-wrap; word-break: break-word; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface); min-height: 120px; max-height: 50vh; overflow-y: auto; }
+#pdf-embed { width: 100%; height: 55vh; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.media-el { max-width: 100%; max-height: 60vh; border: 1px solid var(--border); border-radius: 8px; }
+#eb-chapters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+#eb-chapters button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+#ar-entries div { padding: 4px 0; border-bottom: 1px solid var(--border); }
+#cv-in, #cv-out { flex: 1; min-height: 220px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-family: Consolas, monospace; }
+#cd-body { display: flex; flex-direction: column; gap: 10px; }
+#cd-text { min-height: 55vh; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-family: Consolas, monospace; }
+.code-preview { white-space: pre-wrap; word-break: break-word; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface); min-height: 55vh; font-family: Consolas, monospace; overflow-y: auto; }
+.tok-keyword { color: #c084fc; font-weight: 600; }
+.tok-string { color: #4ade80; }
+.tok-comment { color: var(--muted); font-style: italic; }
+.tok-number { color: #fbbf24; }
 #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
 .toast { background: var(--surface2); border: 1px solid var(--border); border-left: 4px solid var(--accent); padding: 10px 14px; border-radius: 8px; max-width: 420px; }
 .toast.error { border-left-color: #ef4444; }

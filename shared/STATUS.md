@@ -132,3 +132,35 @@ were used, requested or stored. A grep for password/token/secret/keystore
 across `shared/` and `tests/` returned only two false positives: a YAML
 parser variable named `token` and test fixture prose ("the secret word
 is banana").
+
+## Addendum — 1 Nov 2026 (shared-engine extension, no apps/docs/git touched)
+
+New engines (all stdlib-only, all tested):
+- `shared/sheet_core.py` + `tests/test_sheet_core.py` (16 tests): A1
+  addressing, formulas (+ - * / parens, refs, SUM/AVERAGE), cycle
+  detection via recalculate() errors, CSV round-trip, minimal
+  single-sheet XLSX read/write (stdlib zip/xml). One real engine bug
+  caught by tests and fixed: the formula tokenizer kept leading
+  whitespace in token text, so `SUM(A1, A2*2)` read A2 as 0.
+- `shared/epub_core.py` + `tests/test_epub_core.py` (3 tests):
+  container -> OPF -> spine chapters, tag-stripped paragraphs.
+- `shared/pdf_core.py` + `tests/test_pdf_core.py` (5 tests):
+  best-effort Tj/TJ extraction, uncompressed + FlateDecode, hex/UTF-16BE.
+- `shared/slide_core.py` + `tests/test_slide_core.py` (5 tests): deck
+  model + single-file HTML export with escaping and image embedding.
+- `shared/archive_core.py` (small fix, tested): extract() now validates
+  directory entries too (a traversal dir name previously slipped past
+  the file checks) and creates explicit empty-dir entries.
+- `shared/convert_core.py`: NO behaviour change. CSV<->JSON round-trips
+  and JSON pretty-print already existed; 3 new tests pin hard cells
+  (commas/quotes/unicode/multiline) and indent options.
+- `shared/CONTRACTS.md` (§6–§9) and `shared/README.md` updated for the
+  new engines and their limits.
+
+Test command: `cd ~/workspace/omsuite && python3 -m unittest discover -s tests`
+Before: 36 run, 35 pass, 0 fail, 1 skipped.
+After: 69 run, 68 pass, 0 fail, 1 skipped (same pre-existing root skip:
+test_permission_denied_on_readonly_dir). No existing test was weakened;
+two new-test fixture mistakes (unquoted comma; score-column mix-up)
+were fixed in the new tests, not in engines, except the tokenizer bug
+above which was a genuine engine fix.

@@ -15,6 +15,10 @@ we honestly support, with zero install risk).
 | `archive_core.py` | ZIP browse / extract-all / extract-selected / create; traversal, symlink and archive-bomb guards; progress + conflicts. |
 | `text_core.py` | TXT/MD/JSON/XML/YAML-subset read/write; encoding + line-ending preservation; JSON validation/formatting; safe previews. |
 | `convert_core.py` | Only the conversions actually implemented and tested (see below). |
+| `sheet_core.py` | Spreadsheet: A1 addressing, values, formulas (+ - * / parens, refs, SUM/AVERAGE), CSV + minimal single-sheet XLSX (stdlib OOXML). |
+| `epub_core.py` | EPUB reading: container.xml -> OPF manifest/spine -> chapter paragraphs (tags stripped). |
+| `pdf_core.py` | Best-effort PDF text: FlateDecode via zlib, Tj/TJ operators. No layout, no fonts, no OCR. |
+| `slide_core.py` | Slide-deck model + single-file HTML export (escaped text, images embedded as data URIs when possible). |
 | `CONTRACTS.md` | Language-neutral spec the Android/Windows apps must mirror. |
 | `STATUS.md` | Files, exact commands + output, test numbers, limitations, Not Tested items, blockers. |
 
@@ -36,10 +40,12 @@ Python 3.12.3 was used here; any Python ≥ 3.10 should work (the code uses
 - CSV ↔ JSON (values stay strings; ragged rows and duplicate headers warned)
 - CSV ↔ Markdown table (`|` escaped; separator row required)
 
-NOT implemented and NOT claimed: DOCX / XLSX / PPTX / PDF / EPUB editing
-or conversion, RAR / 7Z archives, OCR. They appear in `STATUS.md` as
-Not implemented / Not verified with reasons. Any stream claiming them must
-first land a tested engine here.
+NOT implemented and NOT claimed: DOCX / PPTX editing or conversion,
+PDF editing/merge/split, EPUB writing, RAR / 7Z archives, OCR. XLSX
+(single sheet only), EPUB reading and best-effort PDF text extraction
+now HAVE tested engines (see the module docstrings for their exact
+limits); anything beyond those limits is still Not verified. Any stream
+claiming more must first land a tested engine here.
 
 ## How Android / Windows should adapt these contracts
 
